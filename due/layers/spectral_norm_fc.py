@@ -1,6 +1,5 @@
 """
 Spectral Normalization from https://arxiv.org/abs/1802.05957
-
 with additional variable `coeff` or max spectral norm.
 """
 import torch
@@ -12,9 +11,10 @@ from torch.nn.utils.spectral_norm import (
 )
 from torch import nn
 
-
 class SpectralNormFC(SpectralNorm):
+    
     def compute_weight(self, module, do_power_iteration: bool) -> torch.Tensor:
+        
         weight = getattr(module, self.name + "_orig")
         u = getattr(module, self.name + "_u")
         v = getattr(module, self.name + "_v")
@@ -25,11 +25,13 @@ class SpectralNormFC(SpectralNorm):
                 for _ in range(self.n_power_iterations):
                     # Spectral norm of weight equals to `u^T W v`, where `u` and `v`
                     # are the first left and right singular vectors.
+                    
                     # This power iteration produces approximations of `u` and `v`.
                     v = normalize(
                         torch.mv(weight_mat.t(), u), dim=0, eps=self.eps, out=v
                     )
                     u = normalize(torch.mv(weight_mat, v), dim=0, eps=self.eps, out=u)
+                    
                 if self.n_power_iterations > 0:
                     # See above on why we need to clone
                     u = u.clone(memory_format=torch.contiguous_format)
@@ -90,6 +92,7 @@ class SpectralNormFC(SpectralNorm):
         return fn
 
 
+# 对spectral normalizing the weights 
 def spectral_norm_fc(
     module,
     coeff: float,
@@ -98,12 +101,14 @@ def spectral_norm_fc(
     eps: float = 1e-12,
     dim: int = None,
 ):
+    
     """
     Args:
         module (nn.Module): containing module
         coeff (float, optional): coefficient to normalize to
         n_power_iterations (int, optional): number of power iterations to
             calculate spectral norm
+            
         name (str, optional): name of weight parameter
         eps (float, optional): epsilon for numerical stability in
             calculating norms
@@ -116,7 +121,7 @@ def spectral_norm_fc(
 
     Example::
 
-        >>> m = spectral_norm_fc(nn.Linear(20, 40), 2.0)
+        >>> m = spectral_norm_fc(nn.Linear(20, 40),  2.0)
         >>> m
         Linear(in_features=20, out_features=40, bias=True)
         >>> m.weight_u.size()

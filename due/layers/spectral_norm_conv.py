@@ -9,12 +9,12 @@ Based on: Regularisation of Neural Networks by Enforcing Lipschitz Continuity
 """
 import torch
 from torch.nn.functional import normalize, conv_transpose2d, conv2d
+
 from torch.nn.utils.spectral_norm import (
     SpectralNorm,
     SpectralNormLoadStateDictPreHook,
     SpectralNormStateDictHook,
 )
-
 
 class SpectralNormConv(SpectralNorm):
     def compute_weight(self, module, do_power_iteration: bool) -> torch.Tensor:
@@ -145,17 +145,12 @@ def spectral_norm_conv(
         name (str, optional): name of weight parameter
         eps (float, optional): epsilon for numerical stability in
             calculating norms
-
     Returns:
         The original module with the spectral norm hook
-
     Example::
-
-        >>> m = spectral_norm_conv(nn.Conv2D(3, 16, 3), (3, 32, 32), 2.0)
+        >>> m = spectral_norm_conv( nn.Conv2D(3, 16, 3), (3, 32, 32), 2.0)
 
     """
-
     input_dim_4d = torch.Size([1, input_dim[0], input_dim[1], input_dim[2]])
     SpectralNormConv.apply(module, coeff, input_dim_4d, name, n_power_iterations, eps)
-
     return module
