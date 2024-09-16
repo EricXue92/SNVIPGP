@@ -6,9 +6,7 @@ This repo contains the official code for .......
 
 
 ## Spectral Normalized GP
-It also contains an implementation of [Simple and Principled Uncertainty Estimation with Deterministic Deep Learning via Distance Awareness](https://arxiv.org/abs/2006.10108) (or SNGP), for easy comparison.
-We only implement the exact predictive covariance version, which is both simpler and performs better than the momentum based scheme.
-
+It also contains an implementation of [Simple and Principled Uncertainty Estimation with Deterministic Deep Learning via Distance Awareness](https://arxiv.org/abs/2006.10108) (or SNGP), for easy comparison with and without Conformal Training. 
 
 ## Run Example
 
