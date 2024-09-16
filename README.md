@@ -18,12 +18,9 @@ Make sure the dependencies listed in `environment.yml` are available and run:
 python train_due.py
 ```
 
-which will automatically download the dataset (`CIFAR10` by default), and start training.
+which will automatically download the dataset (`Brain Tumors` by default), and start training.
 There are several command line flags available for changing the hyper-parameters.
 
-A model trained using the defaults is available from [here](https://www.cs.ox.ac.uk/people/joost.vanamersfoort/due.pt).
-
-A regression example is implemented in `toy_regression.ipynb`.
 
 If you want to train SNGP, simply add the flag (and adjust the learning rate):
 
