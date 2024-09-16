@@ -2,7 +2,7 @@
 
 
 ## Deterministic Uncertainty Estimation
-This repo contains the official code for [**On Feature Collapse and Deep Kernel Learning for Single Forward Pass Uncertainty**](https://arxiv.org/abs/2102.11409).
+This repo contains the official code for .......
 
 
 ## Spectral Normalized GP
