@@ -1,4 +1,4 @@
-# DUE and SNGP
+# DUE and SNGP With Conformal Training 
 
 
 ## Deterministic Uncertainty Estimation With Conformal Training
