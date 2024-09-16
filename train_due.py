@@ -27,8 +27,8 @@ from lib.evaluate_cp import conformal_evaluate, ConformalTrainingLoss
 # Custom metric: efficiency 
 class ConformalInefficiency(Metric):
     def __init__(self, cal_smx, cal_labels, n, alpha = 0.05, output_transform = lambda x: x ):
-        self.cal_smx = cal_smx 
-        self.cal_labels = cal_labels 
+        # self.cal_smx = cal_smx 
+        # self.cal_labels = cal_labels 
         self.n = n
         self.alpha = alpha 
         super(ConformalInefficiency, self).__init__(output_transform = output_transform)
@@ -50,6 +50,7 @@ class ConformalInefficiency(Metric):
     
 # hparams是自定义Hyperparameters class的对象, 方便saved, loaded, and updated 参数
 # 该对象的属性值 来自于 用户的输入和默认的值，并包括各种自定义的函数 
+
 def main(hparams):
     
     # hparams.output_dir = "./default"
