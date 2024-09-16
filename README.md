@@ -1,7 +1,7 @@
 # DUE and SNGP
 
 
-## Deterministic Uncertainty Estimation
+## Deterministic Uncertainty Estimation With Conformal Training
 This repo contains the official code for .......
 
 
