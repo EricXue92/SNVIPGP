@@ -1,14 +1,16 @@
 import os
 os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
+
 import numpy as np 
 import argparse
 import copy
 import json
 import torch
 import torch.nn.functional as F
+
 from torch.utils.tensorboard import SummaryWriter
 from ignite.engine import Events, Engine
-from ignite.metrics import Metric, Accuracy, Average, Loss
+from ignite.metrics import Accuracy, Average, Loss
 from ignite.contrib.handlers import ProgressBar
 from ignite.handlers import ModelCheckpoint, global_step_from_engine, EarlyStopping
 
@@ -21,7 +23,7 @@ from due.sngp import Laplace
 from lib.datasets import get_dataset
 from lib.evaluate_ood import get_ood_metrics
 from lib.utils import get_results_directory, Hyperparameters, set_seed, plot_training_history, plot_OOD
-from lib.evaluate_cp import conformal_evaluate, ConformalTrainingLoss
+from lib.evaluate_cp import conformal_evaluate, ConformalTrainingLoss, ConformalInefficiency
 from pathlib import Path
 from sngp_wrapper.covert_utils import convert_to_sn_my, replace_layer_with_gaussian
 
@@ -30,31 +32,7 @@ torch.backends.cudnn.benchmark = True
 
 # https://datascience.stackexchange.com/questions/31113/validation-showing-huge-fluctuations-what-could-be-the-cause
 
-class ConformalInefficiency(Metric):
-    def __init__(self, alpha = 0.05, output_transform=lambda x: x):
-        self.cal_smx = None 
-        self.cal_labels = None 
-        self.alpha = alpha 
-        super(ConformalInefficiency, self).__init__(output_transform=output_transform)
-        
-    def reset(self):
-        self.eff = 0
-        
-    def update(self, output):
-        val_smx, val_labels = output
-        n = len(val_smx)
-        cal_scores = 1 - self.cal_smx[torch.arange(n), self.cal_labels]
-        q_level = np.ceil((n + 1) * (1 - self.alpha)) / n
-        qhat = torch.quantile(cal_scores, q_level, interpolation='midpoint')
-        prediction_sets = val_smx >= (1 - qhat)
-        self.eff = torch.sum(prediction_sets) / len(prediction_sets)
-        
-    def compute(self):
-        return self.eff 
-    
-
 def main(hparams):
-    
     if hparams.force_directory is None:
         results_dir = get_results_directory(hparams.output_dir)
     else:
@@ -70,19 +48,22 @@ def main(hparams):
     if hparams.n_inducing_points is None:
         hparams.n_inducing_points = num_classes
     print(f"Training with {hparams}")
+    
+    # Save parameters
     hparams.save(results_dir / "hparams.json")
     
+    # Feature transformation
     feature_extractor = WideResNet(
         input_size,
         hparams.spectral_conv,
         hparams.spectral_bn,
-        dropout_rate=hparams.dropout_rate,
-        coeff=hparams.coeff,
+        dropout_rate = hparams.dropout_rate,
+        coeff = hparams.coeff,
         n_power_iterations = hparams.n_power_iterations,
     )
-    kwargs = {"num_workers": 4, "pin_memory": True}
-
+    
     if hparams.sngp:
+        # model for SNGP 
         model = WideResNet(
             input_size,
             hparams.spectral_conv,
@@ -99,7 +80,7 @@ def main(hparams):
             'num_inducing': 2048,
             'gp_scale': 1.0,
             'gp_bias': 0.,
-            'gp_kernel_type': 'linear',
+            'gp_kernel_type': 'gaussian', # linear
             'gp_input_normalization': True,
             'gp_cov_discount_factor': -1,
             'gp_cov_ridge_penalty': 1.,
@@ -111,8 +92,9 @@ def main(hparams):
         }
         # Enforcing Spectral-Normalization on each layer 
         model = convert_to_sn_my(model, spec_norm_replace_list, spec_norm_bound)
+        
         # Equipping the model with laplace approximation 
-        replace_layer_with_gaussian(container = model, signature="linear", **GP_KWARGS)
+        replace_layer_with_gaussian(container = model, signature="linear", **GP_KWARGS) 
         
         ########## Here decide whether conformal training 
         if hparams.conformal_training:
@@ -120,28 +102,33 @@ def main(hparams):
         else:
             loss_fn = F.cross_entropy
         likelihood = None
+        
     else:
         initial_inducing_points, initial_lengthscale = dkl.initial_values(
             train_dataset, feature_extractor, hparams.n_inducing_points )
+        
         gp = dkl.GP(
             num_outputs = num_classes,
             initial_lengthscale=initial_lengthscale,
             initial_inducing_points=initial_inducing_points,
             kernel=hparams.kernel,
         )
+        # Model for inducing points 
         model = dkl.DKL(feature_extractor, gp)
         likelihood = SoftmaxLikelihood(num_classes = num_classes, mixing_weights=False) 
         likelihood = likelihood.cuda()
         elbo_fn = VariationalELBO(likelihood, gp, num_data=len(train_dataset))
-        loss_fn = lambda x, y: - elbo_fn(x, y)
+        loss_fn = lambda x, y: -elbo_fn(x, y)
+
 
     model = model.cuda()
 
     optimizer = torch.optim.SGD(
         model.parameters(),
-        lr=hparams.learning_rate,
+        lr = hparams.learning_rate,
         momentum = 0.9,
         weight_decay = hparams.weight_decay,)
+    
 #     optimizer = torch.optim.Adam(
 #     model.parameters(),
 #     lr=hparams.learning_rate,
@@ -156,16 +143,12 @@ def main(hparams):
     best_inefficiency = float('inf')
     best_auroc = float('-inf')
     best_aupr = float('-inf')
-    
     best_model_state_inefficiency, best_model_state_ood = None, None
     
     # For plotting
-    plot_train_acc = []
-    plot_train_loss = []
-    plot_val_loss = []
-    plot_val_acc = []
-    plot_auroc = []
-    plot_aupr = []
+    plot_train_acc, plot_val_acc = [], []
+    plot_train_loss, plot_val_loss = [], []
+    plot_auroc, plot_aupr = [], []
     
     def step(engine, batch):
         model.train()
@@ -179,14 +162,19 @@ def main(hparams):
         if hparams.conformal_training and not hparams.sngp:
             ### Conformal training for inducing point GP
             CP_size_fn = ConformalTrainingLoss(alpha = hparams.alpha, beta = hparams.beta, temperature = 1, sngp_flag = False)
+    
             loss_cn = loss_fn(y_pred, y)
-            y_pred = y_pred.to_data_independent_dist()
-            y_pred = likelihood(y_pred).probs.mean(0)
-            loss_size = CP_size_fn(y_pred, y)
+            
+            y_pred_temp = y_pred.to_data_independent_dist()
+            y_pred_temp = likelihood(y_pred_temp).probs.mean(0)
+        
+            loss_size = CP_size_fn(y_pred_temp, y)
             loss = loss_cn + loss_size
             print(f"total loss, {loss.item() + loss_size}", f"elbo, {loss.item()}", f"loss_size, {loss_size}")
+            
         else: 
             loss = loss_fn(y_pred, y)
+            
         loss.backward()
         ########## 
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0) # Clip gradients
@@ -205,6 +193,7 @@ def main(hparams):
     
     def training_accuracy_transform(output):
         y_pred, y, loss = output 
+
         if not hparams.sngp:
             y_pred = y_pred.to_data_independent_dist()
             y_pred = likelihood(y_pred).probs.mean(0)
@@ -269,6 +258,7 @@ def main(hparams):
     # evaluator.add_event_handler(Events.COMPLETED, early_stopping_handler)
 
     # Attach the handler that logs results after each epoch
+    
     @trainer.on(Events.EPOCH_COMPLETED)
     def log_results(trainer):
         metrics = trainer.state.metrics
@@ -308,6 +298,8 @@ def main(hparams):
         def accumulate_outputs(engine):
             # Access the output of the engine, which is (smx, labels) for each batch
             smx, labels = engine.state.output
+            
+            ########
             if not hparams.sngp:
                 smx = smx.to_data_independent_dist()
                 smx = likelihood(smx).probs.mean(0)
@@ -318,6 +310,7 @@ def main(hparams):
         # Attach the handler to the evaluator
         evaluator.add_event_handler(Events.ITERATION_COMPLETED, accumulate_outputs)
 
+        ######### 
         val_state = evaluator.run(val_loader)
         
         # After evaluation, concatenate all the accumulated outputs
@@ -360,7 +353,6 @@ def main(hparams):
                 'likelihood': likelihood.state_dict() if not hparams.sngp else None,
             }
 
-            
             model_saved_path = results_dir / "best_model_inefficiency.pth"
             torch.save(best_model_state_inefficiency, model_saved_path)
 
@@ -413,12 +405,12 @@ def main(hparams):
         ood_likelihood.eval() if not hparams.sngp else None
 
 
-
         all_cal_smx = []
         all_cal_labels = []
 
         def accumulate_outputs(engine):
             smx, labels = engine.state.output
+            #####
             if not hparams.sngp:
                 smx = smx.to_data_independent_dist()
                 smx = likelihood(smx).probs.mean(0)
@@ -447,14 +439,18 @@ def main(hparams):
         # inefficiency_metric.update((test_state.output[0], test_state.output[1]))  # Pass the entire validation set
         inefficiency = inefficiency_metric.compute().item()
 
-        if not hparams.sngp:
-            _, auroc, aupr = get_ood_metrics(
+        # if not hparams.sngp:
+        #     _, auroc, aupr = get_ood_metrics(
+        #         hparams.dataset, "Alzheimer", ood_model, ood_likelihood
+        #     ) # , hparams.data_root
+        # else:
+        #     _, auroc, aupr = get_ood_metrics(
+        #         hparams.dataset, "Alzheimer", ood_model, None
+        #     ) # , hparams.data_root
+        
+        _, auroc, aupr = get_ood_metrics(
                 hparams.dataset, "Alzheimer", ood_model, ood_likelihood
-            ) # , hparams.data_root
-        else:
-            _, auroc, aupr = get_ood_metrics(
-                hparams.dataset, "Alzheimer", ood_model, None
-            ) # , hparams.data_root
+            ) 
             
         print(f"Final Test Accuracy: {test_accuracy:.4f}, Final Test Loss: {test_loss:.4f}", 
                 f"Test_state Inefficiency: {inefficiency:.4f}", f"auroc {auroc} ", f"aupr {aupr} ")
@@ -488,6 +484,7 @@ def main(hparams):
     ProgressBar(persist=True).attach(trainer)
     # Start training
     trainer.run(train_loader, max_epochs = hparams.epochs)
+    
     writer.close()
     
     # End timing
@@ -506,7 +503,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--batch_size", type=int, default = 64, help="Batch size to use for training")
 
-    parser.add_argument("--learning_rate", type = float, default = 0.01, help = "Learning rate",)
+    parser.add_argument("--learning_rate", type = float, default = 0.1, help = "Learning rate",)
     parser.add_argument("--weight_decay", type=float, default=5e-4, help="Weight decay")
     parser.add_argument("--dropout_rate", type=float, default = 0.3, help="Dropout rate")
     parser.add_argument("--epochs", type = int, default = 100)
