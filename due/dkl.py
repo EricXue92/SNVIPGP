@@ -24,11 +24,9 @@ def initial_values(train_dataset, feature_extractor, n_inducing_points):
     with torch.no_grad():
         for i in range(steps):
             X_sample = torch.stack([train_dataset[j][0] for j in idx[i]])
-
             if torch.cuda.is_available():
                 X_sample = X_sample.cuda()
                 feature_extractor = feature_extractor.cuda()
-
             f_X_samples.append(feature_extractor(X_sample).cpu())
 
     f_X_samples = torch.cat(f_X_samples)
@@ -47,7 +45,6 @@ def _get_initial_inducing_points(f_X_sample, n_inducing_points):
     )
     kmeans.fit(f_X_sample)
     initial_inducing_points = torch.from_numpy(kmeans.cluster_centers_)
-
     return initial_inducing_points
 
 

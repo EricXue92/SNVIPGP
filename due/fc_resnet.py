@@ -1,8 +1,6 @@
 import torch.nn as nn
 import torch.nn.functional as F
-
 from due.layers import spectral_norm_fc
-
 
 class FCResNet(nn.Module):
     def __init__(

@@ -151,7 +151,6 @@ class WideResNet(nn.Module):
             )
             in_c = out_c
             input_size = (input_size - 1) // stride + 1
-
         return nn.Sequential(*layers), input_size
 
     def forward(self, x, kwargs={}):
