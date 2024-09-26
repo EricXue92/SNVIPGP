@@ -3,6 +3,7 @@
 
 import torch.nn as nn
 import torch.nn.functional as F
+
 from due.layers import spectral_norm_conv, spectral_norm_fc, SpectralBatchNorm2d
 
 
@@ -24,69 +25,81 @@ class WideBasic(nn.Module):
 
         self.bn2 = wrapped_batchnorm(out_c)
         self.conv2 = wrapped_conv(input_size, out_c, out_c, 3, 1)
+
         self.dropout_rate = dropout_rate
         if dropout_rate > 0:
             self.dropout = nn.Dropout(dropout_rate)
+
         if stride != 1 or in_c != out_c:
             self.shortcut = wrapped_conv(input_size, in_c, out_c, 1, stride)
         else:
             self.shortcut = nn.Identity()
+
     def forward(self, x):
         out = F.relu(self.bn1(x))
+
         out = self.conv1(out)
+
         out = F.relu(self.bn2(out))
+
         if self.dropout_rate > 0:
             out = self.dropout(out)
+
         out = self.conv2(out)
         out += self.shortcut(x)
+
         return out
 
-# 建立一个WideResNet的模型 + spectral normalization, 本质就是经过神经网络转换后的输出
+
 class WideResNet(nn.Module):
     def __init__(
         self,
         input_size,
         spectral_conv,
         spectral_bn,
-        depth=16,   #22, # 24
+        depth=28,
         widen_factor=10,
         num_classes=None,
-        dropout_rate = 0.3,
-        coeff = 3,
-        n_power_iterations = 1,
+        dropout_rate=0.3,
+        coeff=3,
+        n_power_iterations=1,
     ):
         super().__init__()
 
         assert (depth - 4) % 6 == 0, "Wide-resnet depth should be 6n+4"
 
         self.dropout_rate = dropout_rate
-        
-        ### 定义对 BatchNorm2d 执行 Spectral Normalization的函数
+
         def wrapped_bn(num_features):
             if spectral_bn:
                 bn = SpectralBatchNorm2d(num_features, coeff)
             else:
                 bn = nn.BatchNorm2d(num_features)
+
             return bn
+
         self.wrapped_bn = wrapped_bn
 
-        ### 定义对conv 执行Spectral Normalization 的函数
         def wrapped_conv(input_size, in_c, out_c, kernel_size, stride):
             padding = 1 if kernel_size == 3 else 0
+
             conv = nn.Conv2d(in_c, out_c, kernel_size, stride, padding, bias=False)
+
             if not spectral_conv:
                 return conv
-            ######### Enforcing spectral normalization 
+
             if kernel_size == 1:
                 # use spectral norm fc, because bound are tight for 1x1 convolutions
                 wrapped_conv = spectral_norm_fc(conv, coeff, n_power_iterations)
             else:
-            ######## Otherwise use spectral norm conv, with loose bound
+                # Otherwise use spectral norm conv, with loose bound
                 input_dim = (in_c, input_size, input_size)
                 wrapped_conv = spectral_norm_conv(
                     conv, coeff, input_dim, n_power_iterations
                 )
+
             return wrapped_conv
+
         self.wrapped_conv = wrapped_conv
 
         n = (depth - 4) // 6
@@ -150,7 +163,9 @@ class WideResNet(nn.Module):
         out = F.relu(self.bn1(out))
         out = F.avg_pool2d(out, out.shape[-1])
         out = out.flatten(1)
+
         if self.num_classes is not None:
             out = self.linear(out)
             out = F.log_softmax(out, dim=1)
+
         return out

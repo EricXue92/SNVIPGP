@@ -5,6 +5,7 @@ from torch.nn import functional as F
 from torch.nn.modules.batchnorm import _NormBase
 from torch import nn
 
+
 class _SpectralBatchNorm(_NormBase):
     def __init__(
         self, num_features, coeff, eps=1e-5, momentum=0.01, affine=True
@@ -80,8 +81,10 @@ class _SpectralBatchNorm(_NormBase):
 class SpectralBatchNorm1d(_SpectralBatchNorm, nn.BatchNorm1d):
     pass
 
+
 class SpectralBatchNorm2d(_SpectralBatchNorm, nn.BatchNorm2d):
     pass
+
 
 class SpectralBatchNorm3d(_SpectralBatchNorm, nn.BatchNorm3d):
     pass

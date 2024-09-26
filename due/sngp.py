@@ -3,31 +3,22 @@
 # In particular the full data inverse that avoids momentum hyper-parameters.
 
 import math
+
 import torch
 import torch.nn as nn
 
 
-# return Q the diagonal ; A = Q R # Q.T @ Q = I
 def random_ortho(n, m):
-    # torch.linalg.qr ->  Computes the QR decomposition of a matrix.
-    # return A named tuple (Q, R).
-    # A = QR  --> Q.T @ Q = I  and R is upper triangular with real diagonal
     q, _ = torch.linalg.qr(torch.randn(n, m))
     return q
 
 
-## 定义随机傅里叶特征类
-## 输入: 数据维度 和 RFF维度
-## return： 随机傅里叶特征  torch.cos(x @ self.W + self.b)/np.sqrt(self.rff_dim) * np.sqrt(2)  
 class RandomFourierFeatures(nn.Module):
-    # 初始值给定 原始数据的特征维度(n_dim) 和 随机特征维度(num_random_features)
     def __init__(self, in_dim, num_random_features, feature_scale=None):
         super().__init__()
         if feature_scale is None:
             feature_scale = math.sqrt(num_random_features / 2)
-            
-        # register_buffer 目的是存储 常数
-        # Storing constants: Tensors that are constant and do not require gradients.
+
         self.register_buffer("feature_scale", torch.tensor(feature_scale))
 
         if num_random_features <= in_dim:
@@ -37,7 +28,6 @@ class RandomFourierFeatures(nn.Module):
             # to each other.
             dim_left = num_random_features
             ws = []
-            
             while dim_left > in_dim:
                 ws.append(random_ortho(in_dim, in_dim))
                 dim_left -= in_dim
@@ -46,7 +36,6 @@ class RandomFourierFeatures(nn.Module):
 
         # From: https://github.com/google/edward2/blob/d672c93b179bfcc99dd52228492c53d38cf074ba/edward2/tensorflow/initializers.py#L807-L817
         feature_norm = torch.randn(W.shape) ** 2
-        
         W = W * feature_norm.sum(0).sqrt()
         self.register_buffer("W", W)
 
@@ -60,7 +49,6 @@ class RandomFourierFeatures(nn.Module):
         return k
 
 
-# 建立Laplace模型，返回预测值
 class Laplace(nn.Module):
     def __init__(
         self,
@@ -76,9 +64,7 @@ class Laplace(nn.Module):
         feature_scale=None,
         mean_field_factor=None,  # required for classification problems
     ):
-        
         super().__init__()
-        
         self.feature_extractor = feature_extractor
         self.mean_field_factor = mean_field_factor
         self.ridge_penalty = ridge_penalty
@@ -86,14 +72,10 @@ class Laplace(nn.Module):
 
         if num_gp_features > 0:
             self.num_gp_features = num_gp_features
-            
             self.register_buffer(
                 "random_matrix",
                 torch.normal(0, 0.05, (num_gp_features, num_deep_features)),
             )
-            # torch.nn.functional.linear(input, weight, bias=None) 
-            # Applies a linear transformation to the incoming data:  y = x @ A.T + b
-            # Input: (*, input_features) Weights : (out_features, in_features) Bias: (out_features)
             self.jl = lambda x: nn.functional.linear(x, self.random_matrix)
         else:
             self.num_gp_features = num_deep_features
@@ -103,7 +85,6 @@ class Laplace(nn.Module):
         if normalize_gp_features:
             self.normalize = nn.LayerNorm(num_gp_features)
 
-        # return 傅里叶随机特征 W @ X.T + B
         self.rff = RandomFourierFeatures(
             num_gp_features, num_random_features, feature_scale
         )
@@ -129,9 +110,9 @@ class Laplace(nn.Module):
         # Based on: https://arxiv.org/abs/2006.07584
 
         logits_scale = torch.sqrt(1.0 + torch.diag(pred_cov) * self.mean_field_factor)
-        
         if self.mean_field_factor > 0:
             logits = logits / logits_scale.unsqueeze(-1)
+
         return logits
 
     def forward(self, x):
