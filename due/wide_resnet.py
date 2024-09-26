@@ -6,7 +6,6 @@ import torch.nn.functional as F
 
 from due.layers import spectral_norm_conv, spectral_norm_fc, SpectralBatchNorm2d
 
-
 class WideBasic(nn.Module):
     def __init__(
         self,
@@ -57,8 +56,8 @@ class WideResNet(nn.Module):
         input_size,
         spectral_conv,
         spectral_bn,
-        depth=28,
-        widen_factor=10,
+        depth = 16, # 28
+        widen_factor = 8, # 10
         num_classes=None,
         dropout_rate=0.3,
         coeff=3,
@@ -155,7 +154,7 @@ class WideResNet(nn.Module):
 
         return nn.Sequential(*layers), input_size
 
-    def forward(self, x):
+    def forward(self, x, kwargs={}):
         out = self.conv1(x)
         out = self.layer1(out)
         out = self.layer2(out)
@@ -165,7 +164,22 @@ class WideResNet(nn.Module):
         out = out.flatten(1)
 
         if self.num_classes is not None:
-            out = self.linear(out)
-            out = F.log_softmax(out, dim=1)
+            if "nosoftmax" in kwargs and kwargs["nosoftmax"]:
+                nosoftmax = True
+                kwargs.pop("nosoftmax")
+            else:
+                nosoftmax = False
 
-        return out
+            out = self.linear(out, **kwargs)
+
+            if isinstance(out, tuple):
+                logits, uncertainty = out
+                if not nosoftmax:
+                    logits = F.log_softmax(logits, dim=1)
+                return logits, uncertainty
+            else:
+                prob = F.log_softmax(out, dim=1)
+                return prob
+        else:
+            # self.linear(out, **kwargs)
+            return out

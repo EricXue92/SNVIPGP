@@ -1,6 +1,6 @@
 import os
 os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
-# i like cyy
+
 import random
 import math
 import numpy as np 
@@ -42,12 +42,13 @@ def set_saving_file(hparams):
     return results_dir
 
 
-def main():
+def main(hparams):
+
     # setting the wandb config
-    hparams.batch_size = wandb.config.batch_size
+    hparams.n_inducing_points = wandb.config.n_inducing_points
     hparams.learning_rate = wandb.config.learning_rate
     hparams.n_inducing_points = wandb.config.n_inducing_points
-    
+
     results_dir = set_saving_file(hparams)
     writer = SummaryWriter(log_dir=str(results_dir))
     
@@ -60,7 +61,6 @@ def main():
         hparams.n_inducing_points = num_classes
     print(f"Training with {hparams}")
 
-    
     # Save parameters
     hparams.save(results_dir / "hparams.json")
     
@@ -312,7 +312,6 @@ def main():
         def accumulate_outputs(engine):
             # Access the output of the engine, which is (smx, labels) for each batch
             smx, labels = engine.state.output
-        
             if not hparams.sngp:
                 smx = smx.to_data_independent_dist()
                 smx = likelihood(smx).probs.mean(0)
@@ -347,9 +346,9 @@ def main():
         
         # Log validation metrics to W&B
         wandb.log({"Val_Loss": val_loss, "Val_Accuracy": val_acc, 
-                "Epoch": trainer.state.epoch, "val_AUROC": auroc, "val_AUPR": aupr, "val_inefficiency":inefficiency})
+                "Epoch": trainer.state.epoch,  "val_inefficiency":inefficiency})
         
-        print(f"Validation..- Epoch: {trainer.state.epoch} " 
+        print(f"Validation - Epoch: {trainer.state.epoch} " 
             f"Val Accuracy: {val_acc:.4f} Val Loss: {val_loss:.4f} "
             f"Val Inefficiency: {inefficiency:.4f}" )
         
@@ -534,30 +533,27 @@ def parse_arguments():
     return args 
     
 def run_main(args):
-    
     run = wandb.init()
+    hparams = Hyperparameters(**vars(args))
+
     start_event = torch.cuda.Event(enable_timing=True)
     end_event = torch.cuda.Event(enable_timing=True)
     start_event.record()
 
     main(hparams)
-    
+
     end_event.record()
     torch.cuda.synchronize()
-    
     # Print the elapsed time
     elapsed_time = start_event.elapsed_time(end_event)
     elapsed_time_min = elapsed_time / 60000
     print(f"Elapsed time on GPU: {elapsed_time_min:.3f} min")
-
     wandb.finish()
     
 if __name__ == "__main__":
-    args = parse_arguments()  
+    args = parse_arguments()
     wandb.login()
-    
-    hparams = Hyperparameters(**vars(args))
-    
+    # Step 1: Define a sweep
     sweep_config = {'method': 'grid'}
     metric = {'name': 'loss',
              'goal': 'minimize' }
@@ -566,15 +562,14 @@ if __name__ == "__main__":
     parameters = {'dropout_rate': {'values': [0.3, 0.4, 0.5] }, 
                   'learning_rate' : {'values':[0.01, 0.05, 0.1] },
                   "n_inducing_points" : {'values':[8, 16, 20, 24]} }
-    
+    parameters.update({'epochs': {'value': 1}})
     sweep_config['parameters'] = parameters
-    parameters.update({'epochs': {'value': 1} })
 
-    
-    sweep_id = wandb.sweep(sweep=sweep_config, project="tuning")
-    
+    # Step 2: Initialize the Sweep
+    sweep_id = wandb.sweep(sweep = sweep_config, project="tuning")
 
-    wandb.agent(sweep_id, function=main , count=36)
+    # Step 4: Activate sweep agents
+    wandb.agent(sweep_id, function = partial(run_main, args = args ) , count = 36)
  
  
 

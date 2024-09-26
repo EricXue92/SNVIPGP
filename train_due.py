@@ -111,7 +111,6 @@ def main(hparams):
 
         gp = dkl.GP(
             num_outputs=num_classes,
-=======
         # model for SNGP 
         model = WideResNet(
             input_size,

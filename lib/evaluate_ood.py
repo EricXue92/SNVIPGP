@@ -102,7 +102,6 @@ def get_ood_metrics(in_dataset, out_dataset, model, likelihood=None):  # , root=
     aupr = auc(recall, precision)
     return accuracy, auroc, aupr
 
-
 def get_auroc_classification(data, model, likelihood=None):
     if isinstance(data, torch.utils.data.Dataset):
         dataloader = torch.utils.data.DataLoader(

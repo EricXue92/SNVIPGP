@@ -30,7 +30,8 @@ class ConformalTrainingLoss(nn.Module):
         # Computes a penalty based on the size of prediction sets
 
         ### [ont] important notes 2: as we have relative small num of classes, therefore, consider remove the torch.log
-        size_loss = torch.log(torch.clamp(in_set_prob.sum(axis=1) - 1, min=0).mean(axis=0))
+        # size_loss = torch.log(torch.clamp(in_set_prob.sum(axis=1) - 1, min=0).mean(axis=0))
+        size_loss = torch.clamp(in_set_prob.sum(axis=1) - 1, min=0).mean(axis=0)
         size_loss = self.beta * size_loss
 
         if self.sngp_flag:
@@ -88,9 +89,7 @@ def adaptive_tps(cal_smx, val_smx, cal_labels, val_labels, n, alpha):
     cal_pi = np.argsort(-cal_smx, axis=1)
     cal_srt = np.take_along_axis(cal_smx, cal_pi, axis=1).cumsum(axis=1)
     cal_scores = np.take_along_axis(cal_srt, cal_pi.argsort(axis=1), axis=1)[range(n), cal_labels]
-    qhat = np.quantile(
-        cal_scores, np.ceil((n + 1) * (1 - alpha)) / n, interpolation="midpoint"  # 'higher'
-    )
+    qhat = np.quantile(cal_scores, np.ceil((n + 1) * (1 - alpha)) / n, interpolation="midpoint" )
     val_pi = np.argsort(-val_smx, axis=1)
     val_srt = np.take_along_axis(val_smx, val_pi, axis=1).cumsum(axis=1)
     prediction_sets = np.take_along_axis(val_srt <= qhat, val_pi.argsort(axis=1), axis=1)

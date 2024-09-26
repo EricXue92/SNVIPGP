@@ -16,6 +16,7 @@ from sklearn import cluster
 
 
 def initial_values(train_dataset, feature_extractor, n_inducing_points):
+    # step 8
     steps = 10
     idx = torch.randperm(len(train_dataset))[:1000].chunk(steps)
     f_X_samples = []
