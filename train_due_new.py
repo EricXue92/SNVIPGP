@@ -45,7 +45,7 @@ def main(hparams):
     ds = get_dataset(hparams.dataset)
     input_size, num_classes, train_dataset, val_dataset, test_dataset = ds
     hparams.seed = set_seed(hparams.seed)
-    
+
     if hparams.n_inducing_points is None:
         hparams.n_inducing_points = num_classes
     print(f"Training with {hparams}")
@@ -82,7 +82,7 @@ def main(hparams):
             'num_inducing': 2048,
             'gp_scale': 1.0,
             'gp_bias': 0.,
-            'gp_kernel_type': 'linear', #  gaussian
+            'gp_kernel_type': 'gaussian', # linear
             'gp_input_normalization': True,
             'gp_cov_discount_factor': -1,
             'gp_cov_ridge_penalty': 1.,
@@ -141,7 +141,18 @@ def main(hparams):
     
     milestones = [60, 120, 160]
     # milestones = [30, 40, 50]
+=======
+        lr = hparams.learning_rate,
+        momentum = 0.9,
+        weight_decay = hparams.weight_decay,)
     
+#     optimizer = torch.optim.Adam(
+#     model.parameters(),
+#     lr=hparams.learning_rate,
+#     weight_decay = hparams.weight_decay,
+# )
+    milestones = [60, 120, 160, 180]
+
     scheduler = torch.optim.lr_scheduler.MultiStepLR(
         optimizer, milestones = milestones, gamma = 0.2
     )
@@ -239,7 +250,7 @@ def main(hparams):
     val_loader = torch.utils.data.DataLoader(val_dataset, batch_size = hparams.batch_size, 
                                              shuffle = False, **kwargs)
     test_loader = torch.utils.data.DataLoader( test_dataset, batch_size= 512,  ##
-                                              shuffle = False, **kwargs )
+                                              shuffle=False, **kwargs )
     if hparams.sngp:
         @trainer.on(Events.EPOCH_STARTED)
         def reset_precision_matrix(trainer):
@@ -257,6 +268,7 @@ def main(hparams):
             trainer = trainer  
     )
     evaluator.add_event_handler(Events.COMPLETED, early_stopping_handler)
+
 
     # Attach the handler that logs results after each epoch
     
@@ -379,9 +391,8 @@ def main(hparams):
             #     torch.save(likelihood.state_dict(), likelihood_saved_path)
                 
             print(f"Best model saved at epoch {trainer.state.epoch} with best_auroc {best_auroc:.4f} and best_aupr {best_aupr:.4f}")
-            
+
         scheduler.step()
-        
     results_to_save = {}
         
     @trainer.on(Events.COMPLETED)
@@ -423,10 +434,6 @@ def main(hparams):
 
         test_state = evaluator.run(test_loader)
 
-        # After evaluation, concatenate all the accumulated outputs
-        cal_smx = torch.cat(all_cal_smx, dim=0)
-        cal_labels = torch.cat(all_cal_labels, dim=0)
-        
         metrics = evaluator.state.metrics
         test_accuracy = metrics["accuracy"]
         test_loss = metrics["loss"]
@@ -496,7 +503,7 @@ def main(hparams):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--learning_rate", type = float, default = 0.1, help = "Learning rate") # sngp = 0.05
+    parser.add_argument("--learning_rate", type = float, default = 0.1, help = "Learning rate")
     parser.add_argument("--epochs", type = int, default = 200)
     parser.add_argument("--batch_size", type=int, default = 64, help="Batch size to use for training")
     parser.add_argument("--number_of_class", type = int, default = 10)
