@@ -45,9 +45,9 @@ def set_saving_file(hparams):
 def main():
     # setting the wandb config
     hparams.batch_size = wandb.config.batch_size
-
-
-
+    hparams.learning_rate = wandb.config.learning_rate
+    hparams.n_inducing_points = wandb.config.n_inducing_points
+    
     results_dir = set_saving_file(hparams)
     writer = SummaryWriter(log_dir=str(results_dir))
     
