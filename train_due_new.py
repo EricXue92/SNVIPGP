@@ -138,6 +138,7 @@ def main(hparams):
     #     lr = hparams.learning_rate,
     #     momentum = 0.9,
     #     weight_decay = hparams.weight_decay)
+<<<<<<< Updated upstream
     
     milestones = [60, 120, 160]
     # milestones = [30, 40, 50]
@@ -151,6 +152,9 @@ def main(hparams):
 #     lr=hparams.learning_rate,
 #     weight_decay = hparams.weight_decay,
 # )
+=======
+
+>>>>>>> Stashed changes
     milestones = [60, 120, 160, 180]
 
     scheduler = torch.optim.lr_scheduler.MultiStepLR(

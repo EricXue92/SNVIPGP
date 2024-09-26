@@ -1,3 +1,6 @@
 data
 runs
 *pdf
+.idea
+.DS_Store
+*log
