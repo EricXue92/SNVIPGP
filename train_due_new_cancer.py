@@ -50,7 +50,6 @@ def main(hparams):
     results_dir = set_saving_file(hparams)
     writer = SummaryWriter(log_dir = str(results_dir))
 
-    #
     hparams.seed = set_seed(hparams.seed)
 
     # Data Preparation
@@ -136,7 +135,6 @@ def main(hparams):
         loss_fn = lambda x, y: -elbo_fn(x, y)
         
     model = model.cuda()
-
   
     optimizer = torch.optim.AdamW(
         model.parameters(),
@@ -293,7 +291,7 @@ def main(hparams):
         print(f"Training...{result}")
         
         # Log the training metrics to W&B
-        # wandb.log({"Train/Loss": train_loss, "Train/Accuracy": train_acc, "Epoch": trainer.state.epoch})
+        wandb.log({"Train/Loss": train_loss, "Train/Accuracy": train_acc, "Epoch": trainer.state.epoch})
         
         # writer.add_scalar("Train/Loss", train_loss, trainer.state.epoch)
         # writer.add_scalar("Train/Accuracy", train_acc, trainer.state.epoch)
@@ -348,8 +346,8 @@ def main(hparams):
         inefficiency = inefficiency_metric.compute().item()
         
         # Log validation metrics to W&B
-        # wandb.log({"Val_Loss": val_loss, "Val_Accuracy": val_acc,
-                # "Epoch": trainer.state.epoch,  "val_inefficiency":inefficiency})
+        wandb.log({"Val_Loss": val_loss, "Val_Accuracy": val_acc,
+                "Epoch": trainer.state.epoch,  "val_inefficiency":inefficiency})
         
         print(f"Validation - Epoch: {trainer.state.epoch} " 
             f"Val Accuracy: {val_acc:.4f} Val Loss: {val_loss:.4f} "
@@ -470,7 +468,7 @@ def main(hparams):
         results_to_save['test_accuracy'] = test_accuracy
         results_to_save['test_loss'] = test_loss
         results_to_save['Test_inefficiency'] = inefficiency
-        
+
         # wandb.log({"Test_Loss": test_loss, "Test_Accuracy": test_accuracy,
                # "Epoch": trainer.state.epoch, "Test_AUROC": auroc, "Test_AUPR": aupr, "Test_inefficiency":inefficiency})
 
@@ -479,16 +477,23 @@ def main(hparams):
                                                         adaptive_flag = hparams.adaptive_conformal, alpha = hparams.alpha)
             results_to_save["coverage_mean_sngp"] = str(coverage_mean)
             results_to_save["ineff_list_sngp"] = str(ineff_list)
+
+            ### Save to json
             results_json = json.dumps(results_to_save, indent=4, sort_keys=True)
             (results_dir / "results_sngp.json").write_text(results_json)
+
         else:
             coverage_mean, ineff_list = conformal_evaluate(model, likelihood, dataset = hparams.dataset, 
                                                         adaptive_flag = hparams.adaptive_conformal, alpha = hparams.alpha )
             results_to_save["coverage_mean_gp"] = str(coverage_mean)
             results_to_save["ineff_list_gp"] = str(ineff_list)
-            
+
             results_json = json.dumps(results_to_save, indent=4, sort_keys=True)
             (results_dir / "results_GP.json").write_text(results_json)
+
+        wandb.log({"Test_Loss": test_loss, "Test_Accuracy": test_accuracy,
+                   "Epoch": trainer.state.epoch, "Test_AUROC": auroc, "Test_AUPR": aupr,
+                   "Test_inefficiency":inefficiency, "coverage_mean":coverage_mean, "ineff_list":ineff_list})
 
             # writer.add_scalar("Final Test/Accuracy", test_accuracy, trainer.state.epoch)
             # writer.add_scalar("Final Test/Loss", test_loss, trainer.state.epoch)
@@ -519,7 +524,7 @@ def parse_arguments():
     #action="store_true" -> false,
     parser.add_argument("--sngp", action="store_true", help="Use SNGP (RFF and Laplace) instead of a DUE (sparse GP)")
     parser.add_argument("--conformal_training", action="store_true", help= " conformal training or not" )
-    parser.add_argument("--force_directory", default = None)
+    parser.add_argument("--force_directory", default = "temp")
     parser.add_argument("--weight_decay", type=float, default=1e-3, help="Weight decay") # 5e-4
     parser.add_argument("--dropout_rate", type=float, default = 0.3, help="Dropout rate")
     parser.add_argument("--kernel", default="RBF", choices=["RBF", "RQ", "Matern12", "Matern32", "Matern52"],help="Pick a kernel",)
@@ -534,7 +539,7 @@ def parse_arguments():
     return args 
     
 def run_main(args):
-    # run = wandb.init()
+    run = wandb.init()
 
     hparams = Hyperparameters(**vars(args))
 
@@ -550,34 +555,36 @@ def run_main(args):
     elapsed_time = start_event.elapsed_time(end_event)
     elapsed_time_min = elapsed_time / 60000
     print(f"Elapsed time on GPU: {elapsed_time_min:.3f} min")
-    # wandb.finish()
+    wandb.finish()
     
 if __name__ == "__main__":
 
     args = parse_arguments()
-    run_main(args)
+    #### Run without wandb
+    # run_main(args)
 
-    # wandb.login()
-    # # Step 1: Define a sweep
-    # sweep_config = {'method': 'grid'}
-    # metric = {'name': 'loss',
-    #          'goal': 'minimize' }
-    # sweep_config['metric'] = metric
-    #
+    wandb.login()
+    # Step 1: Define a sweep
+    sweep_config = {'method': 'grid'}
+    metric = {'name': 'loss',
+             'goal': 'minimize' }
+    sweep_config['metric'] = metric
+
+    ### sngp
     # parameters = {'dropout_rate': {'values': [0.3, 0.4, 0.5]},
     #               'learning_rate': {'values': [0.01, 0.05, 0.1]},
     #              }
-    #
-    # ### Inducing Points
-    # # parameters = {'dropout_rate': {'values': [0.3, 0.4, 0.5] },
-    # #               'learning_rate' : {'values':[0.01, 0.05, 0.1] },
-    # #               "n_inducing_points" : {'values':[8, 16, 20, 24]} }
-    #
-    # parameters.update({'epochs': {'value': 1}})
-    # sweep_config['parameters'] = parameters
-    #
-    # # Step 2: Initialize the Sweep
-    # sweep_id = wandb.sweep(sweep = sweep_config, project="tuning")
-    #
-    # # Step 4: Activate sweep agents
-    # wandb.agent(sweep_id, function = partial(run_main, args = args ) , count = 9)
+
+    ### Inducing Points
+    parameters = {'dropout_rate': {'values': [0.3, 0.4, 0.5] },
+                  'learning_rate' : {'values':[0.01, 0.05, 0.1] },
+                  "n_inducing_points" : {'values':[8, 16, 20, 24]} }
+
+    parameters.update({'epochs': {'value': 1}})
+    sweep_config['parameters'] = parameters
+
+    # Step 2: Initialize the Sweep
+    sweep_id = wandb.sweep(sweep = sweep_config, project="Inducing_points")
+
+    # Step 4: Activate sweep agents
+    wandb.agent(sweep_id, function = partial(run_main, args = args ) , count = 3)

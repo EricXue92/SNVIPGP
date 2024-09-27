@@ -42,7 +42,6 @@ class FCResNet(nn.Module):
         self.num_outputs = num_outputs
         if num_outputs is not None:
             self.last = nn.Linear(features, num_outputs)
-
         if activation == "relu":
             self.activation = F.relu
         elif activation == "elu":
@@ -52,11 +51,8 @@ class FCResNet(nn.Module):
 
     def forward(self, x):
         x = self.first(x)
-
         for residual in self.residuals:
             x = x + self.dropout(self.activation(residual(x)))
-
         if self.num_outputs is not None:
             x = self.last(x)
-
         return x

@@ -10,7 +10,6 @@ from PIL import Image
 # National Cancer Institute -- Cancer Imaging Program (CIP)
 # https://www.cancerimagingarchive.net/browse-collections/
 
-
 def get_SVHN():
     input_size = 32
     num_classes = 10
