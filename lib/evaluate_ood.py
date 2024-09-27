@@ -18,9 +18,7 @@ def prepare_ood_datasets(true_dataset, ood_dataset):
     dataloader = torch.utils.data.DataLoader(
         concat_datasets, batch_size=64, shuffle=False, num_workers=4, pin_memory=True
     )
-
     return dataloader, anomaly_targets
-
 
 # GP Uncertainty = entropy （ -output * log(output) ）
 # SNGP Uncertainty = num_classes / (belief_mass + num_classes)
@@ -86,7 +84,6 @@ def loop_over_dataloader(model, likelihood, dataloader):
     scores = np.concatenate(scores)
     accuracies = np.concatenate(accuracies)
     return scores, accuracies
-
 
 def get_ood_metrics(in_dataset, out_dataset, model, likelihood=None):  # , root="./"
     # return input_size, num_classes, train_dataset, val_dataset, test_dataset

@@ -1,4 +1,5 @@
 import os
+import random
 import numpy as np
 import torch
 from torch.utils import data
@@ -8,6 +9,7 @@ from PIL import Image
 
 # National Cancer Institute -- Cancer Imaging Program (CIP)
 # https://www.cancerimagingarchive.net/browse-collections/
+
 
 def get_SVHN():
     input_size = 32
@@ -140,9 +142,7 @@ def get_Brain_tumors():
     # #get the mean of each channel
     # mean = torch.mean(x, dim=(0,2,3)) #tensor([0.2069, 0.2069, 0.2069])
     # std = torch.std(x, dim=(0,2,3)) #tensor([0.1891, 0.1891, 0.1891])
-
     return input_size, num_classes, train_dataset, val_dataset, test_dataset
-
 
 # 3 * 208 * 176
 def get_Alzheimer():
@@ -187,7 +187,6 @@ def get_Alzheimer():
     return input_size, num_classes, train_dataset, val_dataset, test_dataset
 
 
-# 字典 { 数据名称：下载该数据的函数}
 all_datasets = {
     "SVHN": get_SVHN,
     "CIFAR10": get_CIFAR10,

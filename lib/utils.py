@@ -9,6 +9,8 @@ from pathlib import Path
 
 # 设置np.random.seed(seed) 和 torch.manual_seed(seed), 重复实验
 def set_seed(seed):
+    if seed is None:
+        seed = np.random.randint(1, 1000)
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
