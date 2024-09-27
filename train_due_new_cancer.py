@@ -478,7 +478,6 @@ def main(hparams):
             results_to_save["ineff_list_sngp"] = str(ineff_list)
             results_json = json.dumps(results_to_save, indent=4, sort_keys=True)
             (results_dir / "results_sngp.json").write_text(results_json)
-            
         else:
             coverage_mean, ineff_list = conformal_evaluate(model, likelihood, dataset = hparams.dataset, 
                                                         adaptive_flag = hparams.adaptive_conformal, alpha = hparams.alpha )
@@ -491,8 +490,7 @@ def main(hparams):
             # writer.add_scalar("Final Test/Accuracy", test_accuracy, trainer.state.epoch)
             # writer.add_scalar("Final Test/Loss", test_loss, trainer.state.epoch)
             # writer.add_scalar("Final Test/Inefficiency", inefficiency, trainer.state.epoch)
-    
-    
+
     # Adding a progress bar
     ProgressBar(persist=True).attach(trainer)
     # Start training
@@ -551,6 +549,7 @@ def run_main(args):
     wandb.finish()
     
 if __name__ == "__main__":
+
     args = parse_arguments()
     wandb.login()
     # Step 1: Define a sweep
@@ -558,10 +557,15 @@ if __name__ == "__main__":
     metric = {'name': 'loss',
              'goal': 'minimize' }
     sweep_config['metric'] = metric
-    
-    parameters = {'dropout_rate': {'values': [0.3, 0.4, 0.5] }, 
-                  'learning_rate' : {'values':[0.01, 0.05, 0.1] },
-                  "n_inducing_points" : {'values':[8, 16, 20, 24]} }
+
+    parameters = {'dropout_rate': {'values': [0.3, 0.4, 0.5]},
+                  'learning_rate': {'values': [0.01, 0.05, 0.1]},
+                 }
+
+    ### Inducing Points
+    # parameters = {'dropout_rate': {'values': [0.3, 0.4, 0.5] },
+    #               'learning_rate' : {'values':[0.01, 0.05, 0.1] },
+    #               "n_inducing_points" : {'values':[8, 16, 20, 24]} }
 
     parameters.update({'epochs': {'value': 1}})
     sweep_config['parameters'] = parameters
@@ -571,7 +575,3 @@ if __name__ == "__main__":
 
     # Step 4: Activate sweep agents
     wandb.agent(sweep_id, function = partial(run_main, args = args ) , count = 36)
- 
- 
-
-
