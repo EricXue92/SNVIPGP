@@ -5,7 +5,9 @@ import gpytorch
 from sklearn.metrics import roc_auc_score, precision_recall_curve, auc
 from .datasets import get_dataset
 from sngp_wrapper.covert_utils import convert_to_sn_my, replace_layer_with_gaussian
-
+import gc
+import os
+NUM_WORKERS = os.cpu_count()
 
 def prepare_ood_datasets(true_dataset, ood_dataset):
     ood_dataset.transform = true_dataset.transform
@@ -14,10 +16,9 @@ def prepare_ood_datasets(true_dataset, ood_dataset):
         (torch.zeros(len(true_dataset)), torch.ones(len(ood_dataset)))
     )
     concat_datasets = torch.utils.data.ConcatDataset(datasets)
-
     dataloader = torch.utils.data.DataLoader(
-        concat_datasets, batch_size=64, shuffle=False, num_workers=4, pin_memory=True
-    )
+        concat_datasets, batch_size= 128, shuffle=False, num_workers=NUM_WORKERS, pin_memory=True
+    ) #
     return dataloader, anomaly_targets
 
 # GP Uncertainty = entropy （ -output * log(output) ）
@@ -27,9 +28,9 @@ def loop_over_dataloader(model, likelihood, dataloader):
     model.eval()
     if likelihood is not None:
         likelihood.eval()
-    # else:
-    #     # For SNGP Uncertainty
-    #     model.linear.update_covariance_matrix()
+    else:
+        # For SNGP Uncertainty
+        model.linear.update_covariance_matrix()
     with torch.no_grad():
         scores = []
         accuracies = []
@@ -38,7 +39,7 @@ def loop_over_dataloader(model, likelihood, dataloader):
             target = target.cuda()
             if likelihood is None:
                 output, uncertainty = model(data, kwargs={"update_precision_matrix": False,
-                                                          "return_covariance": True, "nosoftmax": True})
+                                                          "return_covariance": True, "nosoftmax": True} )
                 # SNGP Uncertainty with variance
                 # uncertainty = torch.diagonal(uncertainty, 0)
                 # Dempster-Shafer uncertainty for SNGP
@@ -51,7 +52,7 @@ def loop_over_dataloader(model, likelihood, dataloader):
                 belief_mass = torch.sum(torch.exp(output), dim=-1)
                 uncertainty = num_classes / (belief_mass + num_classes)
             else:
-                with gpytorch.settings.num_likelihood_samples(32):
+                with gpytorch.settings.num_likelihood_samples(64):
                     y_pred = model(data).to_data_independent_dist()
                     predictive_dist = likelihood(y_pred)
 
@@ -74,8 +75,8 @@ def loop_over_dataloader(model, likelihood, dataloader):
 
                     probs = predictive_dist.probs
                     output = probs.mean(0)  # (batch_size, num_of_classes)
-
-                # Cross Entropy -> Higher entropy indicates higher uncertainty.
+                    # predictive_variances = probs.var(0)
+                    # Cross Entropy -> Higher entropy indicates higher uncertainty.
                 uncertainty = -(output * output.log()).sum(1)
             pred = torch.argmax(output, dim=1)
             accuracy = pred.eq(target)
@@ -83,7 +84,10 @@ def loop_over_dataloader(model, likelihood, dataloader):
             scores.append(uncertainty.cpu().numpy())
     scores = np.concatenate(scores)
     accuracies = np.concatenate(accuracies)
+    torch.cuda.empty_cache()
+    gc.collect()
     return scores, accuracies
+
 
 def get_ood_metrics(in_dataset, out_dataset, model, likelihood=None):  # , root="./"
     # return input_size, num_classes, train_dataset, val_dataset, test_dataset
@@ -92,7 +96,9 @@ def get_ood_metrics(in_dataset, out_dataset, model, likelihood=None):  # , root=
 
     dataloader, anomaly_targets = prepare_ood_datasets(in_dataset, out_dataset)
     scores, accuracies = loop_over_dataloader(model, likelihood, dataloader)
+
     accuracy = np.mean(accuracies[: len(in_dataset)])
+
     assert len(anomaly_targets) == len(scores), "Mismatch in lengths of anomaly_targets and scores"
     auroc = roc_auc_score(anomaly_targets, scores)
     precision, recall, _ = precision_recall_curve(anomaly_targets, scores)
@@ -101,9 +107,10 @@ def get_ood_metrics(in_dataset, out_dataset, model, likelihood=None):  # , root=
 
 def get_auroc_classification(data, model, likelihood=None):
     if isinstance(data, torch.utils.data.Dataset):
+
         dataloader = torch.utils.data.DataLoader(
-            data, batch_size=64, shuffle=False, num_workers=4, pin_memory=True
-        )
+            data, batch_size= 128, shuffle=False, num_workers=NUM_WORKERS, pin_memory=True
+        ) #
     else:
         dataloader = data
     scores, accuracies = loop_over_dataloader(model, likelihood, dataloader)

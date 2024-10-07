@@ -76,6 +76,7 @@ def get_results_directory(name, stamp=True):
     # name 默认为 default
     if name is not None:
         results_dir = results_dir / name
+
     # 新的文件路径 "runs/2024-06-30-Sunday-20-22-46"
     results_dir = results_dir / timestamp if stamp else results_dir
     # Create the directory and any missing parent directories
@@ -86,6 +87,7 @@ def get_results_directory(name, stamp=True):
 # The Hyperparameters class manages hyperparameters for a model,
 # allowing them to be easily saved, loaded, and updated.
 # It supports initialization from a file and dynamic updates via keyword arguments.
+
 class Hyperparameters:
     # It can load hyperparameters from a file if a path is provided as the first argument.
     # Updates with any additional keyword arguments provided.
@@ -113,7 +115,6 @@ class Hyperparameters:
     #  Converts the hyperparameters into a dictionary format using vars(self)
     def to_dict(self):
         return vars(self)
-
         # This method will dynamically set the attributes of MyClass instances
 
     # based on the key-value pairs in the dictionary.
@@ -133,6 +134,7 @@ class Hyperparameters:
     # }
     # obj = MyClass()
     # obj.from_dict(data)
+
     # print(obj.name)       # Alice
     # print(obj.age)        # 30
     # print(obj.occupation) # Engineer

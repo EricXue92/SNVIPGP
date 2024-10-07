@@ -1,73 +1,66 @@
 import os
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
 
-
-import random
-import math
-
-import numpy as np 
 import argparse
 import copy
 import json
 import torch
 import torch.nn.functional as F
-
 from torch.utils.tensorboard import SummaryWriter
 from ignite.engine import Events, Engine
 from ignite.metrics import Accuracy, Average, Loss
 from ignite.contrib.handlers import ProgressBar
-from ignite.handlers import ModelCheckpoint, global_step_from_engine, EarlyStopping
-
+from ignite.handlers import EarlyStopping
 from gpytorch.mlls import VariationalELBO
 from gpytorch.likelihoods import SoftmaxLikelihood
-
 from due import dkl
 from due.wide_resnet import WideResNet
-from due.sngp import Laplace
 from lib.datasets import get_dataset
 from lib.evaluate_ood import get_ood_metrics
 from lib.utils import get_results_directory, Hyperparameters, set_seed, plot_training_history, plot_OOD
 from lib.evaluate_cp import conformal_evaluate, ConformalTrainingLoss, ConformalInefficiency
 from pathlib import Path
-from sngp_wrapper.covert_utils import convert_to_sn_my, replace_layer_with_gaussian
+from sngp_wrapper.covert_utils import  replace_layer_with_gaussian # convert_to_sn_my,
 
 # Environment Configuration
 # For context see: https://github.com/pytorch/pytorch/issues/47908
-os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
-torch.backends.cudnn.benchmark = True
-
-# https://datascience.stackexchange.com/questions/31113/validation-showing-huge-fluctuations-what-could-be-the-cause
 
 import wandb
-wandb.login()
+from functools import partial
+# https://datascience.stackexchange.com/questions/31113/validation-showing-huge-fluctuations-what-could-be-the-cause
 
-sweep_config = {
-    'method': 'random'
-    }
-
-def main(hparams):
-    
-    # Setting up Results Directory:
+def set_saving_file(hparams):
     if hparams.force_directory is None:
         results_dir = get_results_directory(hparams.output_dir)
     else:
         os.makedirs(hparams.force_directory, exist_ok=True)
         results_dir = Path(hparams.force_directory)
-        
-    writer = SummaryWriter(log_dir=str(results_dir))
-    
+    return results_dir
+
+
+def main(hparams):
+    # setting the wandb config
+    # hparams.n_inducing_points = wandb.config.n_inducing_points
+    hparams.learning_rate = wandb.config.learning_rate
+    hparams.dropout_rate = wandb.config.dropout_rate
+
+    results_dir = set_saving_file(hparams)
+    writer = SummaryWriter(log_dir = str(results_dir))
+    set_seed(hparams.seed)
+
     # Data Preparation
     ds = get_dataset(hparams.dataset)
     input_size, num_classes, train_dataset, val_dataset, test_dataset = ds
-    hparams.seed = set_seed(hparams.seed)
+
     
     if hparams.n_inducing_points is None:
         hparams.n_inducing_points = num_classes
+
     print(f"Training with {hparams}")
-    
+
     # Save parameters
     hparams.save(results_dir / "hparams.json")
     
-    # Model Initialization : A model (WideResNet) is instantiated as the feature extractor
     feature_extractor = WideResNet(
         input_size,
         hparams.spectral_conv,
@@ -76,10 +69,8 @@ def main(hparams):
         coeff = hparams.coeff,
         n_power_iterations = hparams.n_power_iterations,
     )
-    
-    # Model and Loss Function Setup
+        
     if hparams.sngp:
-        # model for SNGP 
         model = WideResNet(
             input_size,
             hparams.spectral_conv,
@@ -89,10 +80,8 @@ def main(hparams):
             n_power_iterations = hparams.n_power_iterations,
             num_classes = hparams.number_of_class,
         )
-        
         # spec_norm_replace_list = ["Linear", "Conv2D"]
         # spec_norm_bound = 9.
-    
         GP_KWARGS = {
             'num_inducing': 2048,
             'gp_scale': 1.0,
@@ -107,8 +96,9 @@ def main(hparams):
             'gp_random_feature_type': 'orf',
             'gp_output_imagenet_initializer': True,
             ####### 
-            'num_classes': 10,
+            'num_classes': 10,  #
         }
+        
         # Enforcing Spectral-Normalization on each layer 
         # model = convert_to_sn_my(model, spec_norm_replace_list, spec_norm_bound)
         
@@ -139,9 +129,9 @@ def main(hparams):
         likelihood = likelihood.cuda()
         elbo_fn = VariationalELBO(likelihood, gp, num_data = len(train_dataset))
         loss_fn = lambda x, y: -elbo_fn(x, y)
-
+        
     model = model.cuda()
-
+  
     optimizer = torch.optim.AdamW(
         model.parameters(),
         lr=hparams.learning_rate,
@@ -187,7 +177,7 @@ def main(hparams):
             loss_cn = loss_fn(y_pred, y)
             y_pred_temp = y_pred.to_data_independent_dist()
             y_pred_temp = likelihood(y_pred_temp).probs.mean(0)
-        
+            #### Conformal training loss
             loss_size = CP_size_fn(y_pred_temp, y)
             loss = loss_cn + loss_size
             print(f"total loss, {loss.item() + loss_size}", f"elbo, {loss.item()}", f"loss_size, {loss_size}")
@@ -211,15 +201,14 @@ def main(hparams):
             y_pred = model(x)
         return y_pred, y
     
-    def training_accuracy_transform(output):
-        y_pred, y, loss = output 
-
+    def training_accuracy(output):
+        y_pred, y, loss = output
         if not hparams.sngp:
             y_pred = y_pred.to_data_independent_dist()
             y_pred = likelihood(y_pred).probs.mean(0)
         return y_pred, y
     
-    def output_loss_transform(output):
+    def training_loss(output):
         y_pred, y, loss = output 
         return loss
 
@@ -233,13 +222,15 @@ def main(hparams):
     trainer = Engine(step)
     evaluator = Engine(eval_step)
 
-    metric = Average(output_transform = output_loss_transform)
+    metric = Average(output_transform = training_loss)
     metric.attach(trainer, "loss")
-    metric = Accuracy(output_transform = training_accuracy_transform)
+
+    metric = Accuracy(output_transform = training_accuracy)
     metric.attach(trainer, "accuracy")
 
     metric = Accuracy(output_transform = output_transform)
     metric.attach(evaluator, "accuracy")
+
     if hparams.sngp:
         metric = Loss(F.cross_entropy)
         metric.attach(evaluator, "loss")
@@ -250,9 +241,11 @@ def main(hparams):
     kwargs = {"num_workers": 4, "pin_memory": True}
     train_loader = torch.utils.data.DataLoader(train_dataset, batch_size = hparams.batch_size, 
                                                shuffle = True,  **kwargs) # drop_last = True,
+
     val_loader = torch.utils.data.DataLoader(val_dataset, batch_size = hparams.batch_size, 
                                              shuffle = False, **kwargs)
-    test_loader = torch.utils.data.DataLoader( test_dataset, batch_size= 512,  ##
+
+    test_loader = torch.utils.data.DataLoader( test_dataset, batch_size= hparams.batch_size,  ##
                                               shuffle = False, **kwargs )
     if hparams.sngp:
         @trainer.on(Events.EPOCH_STARTED)
@@ -260,7 +253,8 @@ def main(hparams):
             model.linear.reset_covariance_matrix()
             
     inefficiency_metric = ConformalInefficiency(alpha = hparams.alpha)
-    inefficiency = inefficiency_metric.compute().item()
+    #inefficiency = inefficiency_metric.compute().item()
+    inefficiency = inefficiency_metric.compute()
 
     ##### Create EarlyStropping handler 
     def score_function(engine):
@@ -317,8 +311,6 @@ def main(hparams):
         def accumulate_outputs(engine):
             # Access the output of the engine, which is (smx, labels) for each batch
             smx, labels = engine.state.output
-            
-            ########
             if not hparams.sngp:
                 smx = smx.to_data_independent_dist()
                 smx = likelihood(smx).probs.mean(0)
@@ -329,7 +321,7 @@ def main(hparams):
         # Attach the handler to the evaluator
         evaluator.add_event_handler(Events.ITERATION_COMPLETED, accumulate_outputs)
 
-        ######### 
+
         val_state = evaluator.run(val_loader)
         
         # After evaluation, concatenate all the accumulated outputs
@@ -345,17 +337,17 @@ def main(hparams):
         plot_val_loss.append(val_loss)
         plot_val_acc.append(val_acc)
         
-        # Log validation metrics to W&B
-        wandb.log({"Val/Loss": val_loss, "Val/Accuracy": val_acc, 
-                "Epoch": trainer.state.epoch, "AUROC": auroc, "AUPR": aupr})
-            
         inefficiency_metric.cal_smx = cal_smx
         inefficiency_metric.cal_labels = cal_labels
         
         inefficiency_metric.update((cal_smx, cal_labels))  # Pass the entire validation set
         inefficiency = inefficiency_metric.compute().item()
         
-        print(f"Validation..- Epoch: {trainer.state.epoch} " 
+        # Log validation metrics to W&B
+        wandb.log({"Val_Loss": val_loss, "Val_Accuracy": val_acc,
+               "Epoch": trainer.state.epoch,  "val_inefficiency":inefficiency})
+        
+        print(f"Validation - Epoch: {trainer.state.epoch} " 
             f"Val Accuracy: {val_acc:.4f} Val Loss: {val_loss:.4f} "
             f"Val Inefficiency: {inefficiency:.4f}" )
         
@@ -381,17 +373,6 @@ def main(hparams):
 
             print(f"Best model saved at epoch {trainer.state.epoch} with inefficiency {best_inefficiency:.4f}")
         
-        wandb.log({
-                    "Final/Best_Val_Loss": best_val_loss,
-                    "Final/Best_Epoch": trainer.state.epoch,
-                    "Final/Train_Loss": np.mean(plot_train_loss),
-                    "Final/Train_Accuracy": np.mean(plot_train_acc),
-                    "Final/Val_Loss": np.mean(plot_val_loss),
-                    "Final/Val_Accuracy": np.mean(plot_val_acc),
-                    "Final/AUROC": np.mean(plot_auroc),
-                    "Final/AUPR": np.mean(plot_aupr),
-                })
-        
         # Save the best model based on the best OOD detection on val data (best_ood)
         nonlocal best_auroc, best_aupr
         
@@ -412,7 +393,7 @@ def main(hparams):
             #     torch.save(likelihood.state_dict(), likelihood_saved_path)
                 
             print(f"Best model saved at epoch {trainer.state.epoch} with best_auroc {best_auroc:.4f} and best_aupr {best_aupr:.4f}")
-            
+    
             
     results_to_save = {}
         
@@ -453,11 +434,7 @@ def main(hparams):
 
         evaluator.add_event_handler(Events.ITERATION_COMPLETED, accumulate_outputs)
 
-        test_state = evaluator.run(test_loader)
-
-        # After evaluation, concatenate all the accumulated outputs
-        cal_smx = torch.cat(all_cal_smx, dim=0)
-        cal_labels = torch.cat(all_cal_labels, dim=0)
+        evaluator.run(test_loader)
         
         metrics = evaluator.state.metrics
         test_accuracy = metrics["accuracy"]
@@ -470,7 +447,6 @@ def main(hparams):
         inefficiency_metric.cal_labels = cal_labels
 
         inefficiency_metric.update( (cal_smx, cal_labels) ) # Pass the entire validation set
-        # inefficiency_metric.update((test_state.output[0], test_state.output[1]))  # Pass the entire validation set
         inefficiency = inefficiency_metric.compute().item()
 
         _, auroc, aupr = get_ood_metrics(
@@ -480,29 +456,35 @@ def main(hparams):
         print(f"Final Test Accuracy: {test_accuracy:.4f}, Final Test Loss: {test_loss:.4f}", 
                 f"Test_state Inefficiency: {inefficiency:.4f}", f"auroc {auroc} ", f"aupr {aupr} ")
             
-        results_to_save["auroc_ood_Alzheimer"] = auroc
-        results_to_save["aupr_ood_Alzheimer"] = aupr
+        results_to_save["auroc_ood_SVHN"] = auroc
+        results_to_save["aupr_ood_SVHN"] = aupr
         results_to_save['test_accuracy'] = test_accuracy
         results_to_save['test_loss'] = test_loss
         results_to_save['Test_inefficiency'] = inefficiency
-            
+
         if hparams.sngp:
             coverage_mean, ineff_list = conformal_evaluate(model, likelihood = None, dataset = hparams.dataset, 
                                                         adaptive_flag = hparams.adaptive_conformal, alpha = hparams.alpha)
             results_to_save["coverage_mean_sngp"] = str(coverage_mean)
             results_to_save["ineff_list_sngp"] = str(ineff_list)
+
+            ### Save to json
             results_json = json.dumps(results_to_save, indent=4, sort_keys=True)
             (results_dir / "results_sngp.json").write_text(results_json)
-            
+
         else:
             coverage_mean, ineff_list = conformal_evaluate(model, likelihood, dataset = hparams.dataset, 
                                                         adaptive_flag = hparams.adaptive_conformal, alpha = hparams.alpha )
             results_to_save["coverage_mean_gp"] = str(coverage_mean)
             results_to_save["ineff_list_gp"] = str(ineff_list)
-            
+
             results_json = json.dumps(results_to_save, indent=4, sort_keys=True)
             (results_dir / "results_GP.json").write_text(results_json)
-            
+
+        wandb.log({"Test_Loss": test_loss, "Test_Accuracy": test_accuracy,
+                   "Epoch": trainer.state.epoch, "Test_AUROC": auroc, "Test_AUPR": aupr,
+                   "Test_inefficiency":inefficiency, "coverage_mean":coverage_mean, "ineff_list":ineff_list})
+
             # writer.add_scalar("Final Test/Accuracy", test_accuracy, trainer.state.epoch)
             # writer.add_scalar("Final Test/Loss", test_loss, trainer.state.epoch)
             # writer.add_scalar("Final Test/Inefficiency", inefficiency, trainer.state.epoch)
@@ -511,74 +493,81 @@ def main(hparams):
     ProgressBar(persist=True).attach(trainer)
     # Start training
     trainer.run(train_loader, max_epochs = hparams.epochs)
-    
+    scheduler.step()
     writer.close()
-    
-    # End timing
-    end_event.record()
-    # Waits for everything to finish running on the GPU
-    torch.cuda.synchronize()
-    # Calculate the elapsed time (in milliseconds)
-    elapsed_time_ms = start_event.elapsed_time(end_event)
-    elapsed_time_min = elapsed_time_ms / 60000
-    print(f"Elapsed time on GPU: {elapsed_time_min:.3f} min")
-    
     plot_training_history(plot_train_loss, plot_val_loss, plot_train_acc, plot_val_acc)
     plot_OOD(plot_auroc, plot_aupr)
-    
-    # Finish the W&B run
-    wandb.finish()
 
-if __name__ == "__main__":
+# Define a function to parse arguments
+def parse_arguments():
     parser = argparse.ArgumentParser()
     parser.add_argument("--learning_rate", type = float, default = 0.1, help = "Learning rate") # sngp = 0.05
     parser.add_argument("--epochs", type = int, default = 200)
-    parser.add_argument("--batch_size", type=int, default = 64, help="Batch size to use for training")
+    parser.add_argument("--batch_size", type=int, default = 64, help= "Batch size to use for training")
     parser.add_argument("--number_of_class", type = int, default = 10)
     parser.add_argument("--alpha", type= float, default= 0.05, help="Conformal Rate" )
     parser.add_argument("--dataset", default="CIFAR10", choices=["Brain_tumors", "Alzheimer", 'CIFAR100', "SVHN"])
-    parser.add_argument("--n_inducing_points", type=int, help="Number of inducing points" )
+    parser.add_argument("--n_inducing_points", type=int, default= 8, help="Number of inducing points" )
     parser.add_argument("--beta", type=int, default= 0.1, help="Weight for conformal training loss")
-    parser.add_argument(
-        "--sngp", 
-        # action="store_false", # "sngp": True,
-        action="store_true", # "sngp": false,
-        help="Use SNGP (RFF and Laplace) instead of a DUE (sparse GP)")
-    parser.add_argument(
-        "--conformal_training", 
-        action="store_true", 
-        help="conformal training or not"
-    )
-    parser.add_argument("--force_directory", default = None)
+    #action="store_true" -> false,
+    parser.add_argument("--sngp", action="store_true", help="Use SNGP (RFF and Laplace) instead of a DUE (sparse GP)")
+    parser.add_argument("--conformal_training", action="store_true", help= " conformal training or not" )
+    parser.add_argument("--force_directory", default = "temp")
     parser.add_argument("--weight_decay", type=float, default=1e-3, help="Weight decay") # 5e-4
     parser.add_argument("--dropout_rate", type=float, default = 0.3, help="Dropout rate")
     parser.add_argument("--kernel", default="RBF", choices=["RBF", "RQ", "Matern12", "Matern32", "Matern52"],help="Pick a kernel",)
-    parser.add_argument("--no_spectral_conv", action="store_false",  # "spectral_conv": true,
-            dest="spectral_conv", # # Specify the attribute name used in the result namespace
-            help="Don't use spectral normalization on the convolutions",
-    )
-    parser.add_argument(
-        "--adaptive_conformal", 
-        action="store_true", 
-        help="adaptive conformal"
-    )
-    parser.add_argument("--no_spectral_bn", 
-        action="store_false", 
-        dest="spectral_bn", help="Don't use spectral normalization on the batch normalization layers",
-    )
+    parser.add_argument("--no_spectral_conv", action="store_false",  dest="spectral_conv", help="Don't use spectral normalization on the convolutions",)
+    parser.add_argument( "--adaptive_conformal", action="store_true", help="adaptive conformal")
+    parser.add_argument("--no_spectral_bn", action="store_false", dest="spectral_bn", help="Don't use spectral normalization on the batch normalization layers",)
     parser.add_argument("--seed", type=int, default = 23, help = "Seed to use for training")
     parser.add_argument("--coeff", type=float, default = 3, help = "Spectral normalization coefficient")
     parser.add_argument("--n_power_iterations", default=1, type=int, help = "Number of power iterations")
     parser.add_argument("--output_dir", default="./default", type=str, help = "Specify output directory")
-    
     args = parser.parse_args()
-    hparams = Hyperparameters( ** vars(args) )
+    return args 
     
-    # Create CUDA events to record time
+def run_main(args):
+    run = wandb.init()
+    hparams = Hyperparameters(**vars(args))
     start_event = torch.cuda.Event(enable_timing=True)
     end_event = torch.cuda.Event(enable_timing=True)
-    # Start timing
     start_event.record()
     main(hparams)
+    end_event.record()
+    torch.cuda.synchronize()
+    # Print the elapsed time
+    elapsed_time = start_event.elapsed_time(end_event)
+    elapsed_time_min = elapsed_time / 60000
+    print(f"Elapsed time on GPU: {elapsed_time_min:.3f} min")
+    wandb.finish()
     
+if __name__ == "__main__":
 
+    args = parse_arguments()
+    #### Run without wandb
+    # run_main(args)
+
+    wandb.login()
+    # Step 1: Define a sweep
+    sweep_config = {'method': 'grid'}
+    metric = {'name': 'loss',
+             'goal': 'minimize' }
+    sweep_config['metric'] = metric
+
+    ### sngp
+    # parameters = {'dropout_rate': {'values': [0.3, 0.4, 0.5]},
+    #               'learning_rate': {'values': [0.01, 0.05, 0.1]},
+    #              }
+
+    ### Inducing Points
+    parameters = { 'dropout_rate': {'values': [0.3, 0.4, 0.5] },
+                  'learning_rate' : {'values':[0.01, 0.05, 0.1] }  }
+
+    parameters.update({'epochs': {'value': 1}})
+    sweep_config['parameters'] = parameters
+
+    ### Step 2: Initialize the Sweep
+    sweep_id = wandb.sweep(sweep = sweep_config, project = "CIFAR_SNGP")
+
+    ###Step 4: Activate sweep agents
+    wandb.agent(sweep_id, function = partial(run_main, args = args ) , count = 9)

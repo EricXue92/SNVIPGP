@@ -1,36 +1,39 @@
 import os
 os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
 
-import random
-import math
-import numpy as np 
 import argparse
 import copy
 import json
 import torch
 import torch.nn.functional as F
-from torch.utils.tensorboard import SummaryWriter
+
+# from torch.utils.tensorboard import SummaryWriter
 from ignite.engine import Events, Engine
 from ignite.metrics import Accuracy, Average, Loss
 from ignite.contrib.handlers import ProgressBar
-from ignite.handlers import ModelCheckpoint, global_step_from_engine, EarlyStopping
+from ignite.handlers import EarlyStopping
 from gpytorch.mlls import VariationalELBO
 from gpytorch.likelihoods import SoftmaxLikelihood
 from due import dkl
 from due.wide_resnet import WideResNet
-from due.sngp import Laplace
 from lib.datasets import get_dataset
 from lib.evaluate_ood import get_ood_metrics
 from lib.utils import get_results_directory, Hyperparameters, set_seed, plot_training_history, plot_OOD
 from lib.evaluate_cp import conformal_evaluate, ConformalTrainingLoss, ConformalInefficiency
 from pathlib import Path
-from sngp_wrapper.covert_utils import convert_to_sn_my, replace_layer_with_gaussian
+from sngp_wrapper.covert_utils import  replace_layer_with_gaussian # convert_to_sn_my,
+from torch.utils.data import DataLoader
 
-# Environment Configuration
-# For context see: https://github.com/pytorch/pytorch/issues/47908
+NUM_WORKERS = os.cpu_count()
+torch.backends.cuda.matmul.allow_tf32 = True # >= (8, 0)
+
+# device = "cuda" if torch.cuda.is_available() else "cpu"
+# # Set the device globally
+# torch.set_default_device(device)
 
 import wandb
 from functools import partial
+
 # https://datascience.stackexchange.com/questions/31113/validation-showing-huge-fluctuations-what-could-be-the-cause
 
 def set_saving_file(hparams):
@@ -46,35 +49,39 @@ def main(hparams):
     # setting the wandb config
     hparams.n_inducing_points = wandb.config.n_inducing_points
     hparams.learning_rate = wandb.config.learning_rate
-    hparams.dropout_rate = wandb.config.dropout_rate
+    # hparams.dropout_rate = wandb.config.dropout_rate
 
     results_dir = set_saving_file(hparams)
-    writer = SummaryWriter(log_dir = str(results_dir))
+    # writer = SummaryWriter(log_dir = str(results_dir))
     set_seed(hparams.seed)
 
     # Data Preparation
     ds = get_dataset(hparams.dataset)
     input_size, num_classes, train_dataset, val_dataset, test_dataset = ds
 
-    
+    kwargs = {"num_workers": NUM_WORKERS, "pin_memory": True}
+    train_loader = DataLoader(train_dataset, batch_size = hparams.batch_size, shuffle = True, drop_last = True, **kwargs) #
+    val_loader = DataLoader(val_dataset, batch_size = 128, shuffle = False, drop_last = True,  **kwargs)
+    test_loader = DataLoader(test_dataset, batch_size= 128, shuffle = False, drop_last = True,  **kwargs)
+
     if hparams.n_inducing_points is None:
         hparams.n_inducing_points = num_classes
 
     print(f"Training with {hparams}")
-
     # Save parameters
-    hparams.save(results_dir / "hparams.json")
+    hparams.save( results_dir / "hparams.json")
     
     feature_extractor = WideResNet(
         input_size,
         hparams.spectral_conv,
         hparams.spectral_bn,
         dropout_rate = hparams.dropout_rate,
-        coeff = hparams.coeff,
+        coeff = hparams.coeff, #3
         n_power_iterations = hparams.n_power_iterations,
-    )
+    ).cuda()
         
     if hparams.sngp:
+
         model = WideResNet(
             input_size,
             hparams.spectral_conv,
@@ -84,8 +91,10 @@ def main(hparams):
             n_power_iterations = hparams.n_power_iterations,
             num_classes = hparams.number_of_class,
         )
+
         # spec_norm_replace_list = ["Linear", "Conv2D"]
         # spec_norm_bound = 9.
+
         GP_KWARGS = {
             'num_inducing': 2048,
             'gp_scale': 1.0,
@@ -100,9 +109,9 @@ def main(hparams):
             'gp_random_feature_type': 'orf',
             'gp_output_imagenet_initializer': True,
             ####### 
-            'num_classes': 4,  # 
+            'num_classes': 10,
         }
-        
+
         # Enforcing Spectral-Normalization on each layer 
         # model = convert_to_sn_my(model, spec_norm_replace_list, spec_norm_bound)
         
@@ -114,8 +123,8 @@ def main(hparams):
             loss_fn = ConformalTrainingLoss(alpha = hparams.alpha, beta = hparams.beta, temperature = 1, sngp_flag = True)
         else:
             loss_fn = F.cross_entropy
+
         likelihood = None
-        
     else:
         initial_inducing_points, initial_lengthscale = dkl.initial_values(
             train_dataset, feature_extractor, hparams.n_inducing_points )
@@ -125,28 +134,29 @@ def main(hparams):
             initial_lengthscale=initial_lengthscale,
             initial_inducing_points=initial_inducing_points,
             kernel=hparams.kernel,
-        )
+        ).cuda()
         
         # Model for inducing points 
         model = dkl.DKL(feature_extractor, gp)
-        likelihood = SoftmaxLikelihood(num_classes = num_classes, mixing_weights = False) 
+        likelihood = SoftmaxLikelihood(num_features = 10, num_classes = num_classes, mixing_weights = False)
         likelihood = likelihood.cuda()
+
         elbo_fn = VariationalELBO(likelihood, gp, num_data = len(train_dataset))
         loss_fn = lambda x, y: -elbo_fn(x, y)
-        
-    model = model.cuda()
-  
-    optimizer = torch.optim.AdamW(
-        model.parameters(),
-        lr=hparams.learning_rate,
-        weight_decay=hparams.weight_decay
-    )
 
-    # optimizer = torch.optim.SGD(
-    #     model.parameters(),
-    #     lr = hparams.learning_rate,
-    #     momentum = 0.9,
-    #     weight_decay = hparams.weight_decay)
+    model = model.cuda()
+    #### Note:
+    parameters = [ {"params": model.parameters() } ]
+    ###
+    if not hparams.sngp:
+        parameters.append( {"params": likelihood.parameters() } )
+
+    optimizer = torch.optim.AdamW(
+        # model.parameters(),
+        parameters,
+        lr = hparams.learning_rate,
+        weight_decay = hparams.weight_decay
+    )
     
     milestones = [60, 120, 160]
     # milestones = [30, 40, 50]
@@ -164,8 +174,7 @@ def main(hparams):
     plot_train_acc, plot_val_acc = [], []
     plot_train_loss, plot_val_loss = [], []
     plot_auroc, plot_aupr = [], []
-    
-    # Training and Evaluation Logic
+
     def step(engine, batch):
         model.train()
         if not hparams.sngp:
@@ -185,13 +194,12 @@ def main(hparams):
             loss_size = CP_size_fn(y_pred_temp, y)
             loss = loss_cn + loss_size
             print(f"total loss, {loss.item() + loss_size}", f"elbo, {loss.item()}", f"loss_size, {loss_size}")
-            
         else: 
             loss = loss_fn(y_pred, y)
             
         loss.backward()
         ########## 
-        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0) # Clip gradients
+        # torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0) # Clip gradients
         optimizer.step()
         return y_pred, y, loss.item()
 
@@ -242,37 +250,34 @@ def main(hparams):
         metric = Loss(lambda y_pred, y: -likelihood.expected_log_prob(y, y_pred).mean() )
         metric.attach(evaluator, "loss")
 
-    kwargs = {"num_workers": 4, "pin_memory": True}
-    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size = hparams.batch_size, 
-                                               shuffle = True,  **kwargs) # drop_last = True,
-    val_loader = torch.utils.data.DataLoader(val_dataset, batch_size = hparams.batch_size, 
-                                             shuffle = False, **kwargs)
-    test_loader = torch.utils.data.DataLoader( test_dataset, batch_size= hparams.batch_size,  ##
-                                              shuffle = False, **kwargs )
     if hparams.sngp:
         @trainer.on(Events.EPOCH_STARTED)
         def reset_precision_matrix(trainer):
             model.linear.reset_covariance_matrix()
             
     inefficiency_metric = ConformalInefficiency(alpha = hparams.alpha)
-    #inefficiency = inefficiency_metric.compute().item()
+    ##inefficiency = inefficiency_metric.compute().item()
     inefficiency = inefficiency_metric.compute()
 
-    ##### Create EarlyStropping handler 
+    ##### Create EarlyStropping handler
     def score_function(engine):
         val_loss = engine.state.metrics['loss']
-        return -val_loss  
+        return -val_loss
+
     early_stopping_handler = EarlyStopping(
-            patience = 20,  # Stop after 10 epochs without improvement
+            patience = 20,  # Stop after 20 epochs without improvement
             score_function = score_function,
-            trainer = trainer  
+            trainer = trainer
     )
+
     evaluator.add_event_handler(Events.COMPLETED, early_stopping_handler)
 
     # Attach the handler that logs results after each epoch
-    
+
+    # This function is triggered at the end of each training epoch
     @trainer.on(Events.EPOCH_COMPLETED)
     def log_results(trainer):
+        # at the end of each epoch, the function logs training metrics such as loss and accuracy
         metrics = trainer.state.metrics
         train_loss = metrics["loss"]
         train_acc = metrics["accuracy"]
@@ -288,7 +293,7 @@ def main(hparams):
             result += f"ELBO: {train_loss:.2f} "
             result += f"Accuracy: {train_acc :.2f} "
             
-        print(f"Training...{result}")
+        print(f"Training --- {result}")
         
         # Log the training metrics to W&B
         wandb.log({"Train/Loss": train_loss, "Train/Accuracy": train_acc, "Epoch": trainer.state.epoch})
@@ -296,8 +301,10 @@ def main(hparams):
         # writer.add_scalar("Train/Loss", train_loss, trainer.state.epoch)
         # writer.add_scalar("Train/Accuracy", train_acc, trainer.state.epoch)
 
-        _, auroc, aupr = get_ood_metrics(hparams.dataset, "Alzheimer", model, likelihood)
-        
+        # if (trainer.state.epoch > 2 and trainer.state.epoch % 5 == 0) or trainer.state.epoch == 1:
+        _, auroc, aupr = get_ood_metrics(
+        hparams.dataset, "SVHN", model, likelihood
+        )
         plot_auroc.append(auroc)
         plot_aupr.append(aupr)
         
@@ -310,6 +317,8 @@ def main(hparams):
         all_cal_smx = []
         all_cal_labels = []
 
+        # This function is called after each batch of the evaluation loop (evaluator.run(val_loader))
+        # collecting the softmax outputs and the corresponding ground truth labels
         def accumulate_outputs(engine):
             # Access the output of the engine, which is (smx, labels) for each batch
             smx, labels = engine.state.output
@@ -321,11 +330,12 @@ def main(hparams):
             all_cal_labels.append(labels)
 
         # Attach the handler to the evaluator
+
+        ### Events.ITERATION_COMPLETED: Fired at the end of each iteration (batch)
         evaluator.add_event_handler(Events.ITERATION_COMPLETED, accumulate_outputs)
 
-
         val_state = evaluator.run(val_loader)
-        
+
         # After evaluation, concatenate all the accumulated outputs
         cal_smx = torch.cat(all_cal_smx, dim = 0)
         cal_labels = torch.cat(all_cal_labels, dim = 0)
@@ -375,10 +385,9 @@ def main(hparams):
 
             print(f"Best model saved at epoch {trainer.state.epoch} with inefficiency {best_inefficiency:.4f}")
         
-        # Save the best model based on the best OOD detection on val data (best_ood)
+        # # Save the best model based on the best OOD detection on val data (best_ood)
         nonlocal best_auroc, best_aupr
-        
-        if auroc >= best_auroc and aupr >= best_aupr:
+        if auroc > best_auroc and aupr > best_aupr:
             best_auroc, best_aupr = auroc, aupr
             best_model_state_ood = {
                 'model': model.state_dict(),
@@ -386,39 +395,35 @@ def main(hparams):
                 'epoch': trainer.state.epoch,
                 'likelihood': likelihood.state_dict() if not hparams.sngp else None,
             }
-                
+
             model_saved_path = results_dir / "best_model_ood.pth"
             torch.save(best_model_state_ood, model_saved_path)
-            
-            # if likelihood is not None:
-            #     likelihood_saved_path = results_dir / "likelihood_ood.pth"
-            #     torch.save(likelihood.state_dict(), likelihood_saved_path)
-                
+
             print(f"Best model saved at epoch {trainer.state.epoch} with best_auroc {best_auroc:.4f} and best_aupr {best_aupr:.4f}")
-    
-            
+
     results_to_save = {}
-        
+
+    ### Events.COMPLETED: Fired when the entire training process completes
     @trainer.on(Events.COMPLETED)
     def compute_test_loss_at_last_epoch(trainer):
         print("Training completed. Running evaluation on the test set with the best model.")
         # if best_model_state_inefficiency is not None and best_model_state_ood is not None:
 
-        best_model_state_inefficiency = torch.load(results_dir / "best_model_inefficiency.pth")
+        best_model_state_inefficiency = torch.load(results_dir / "best_model_inefficiency.pth",  weights_only=True)
         model.load_state_dict(best_model_state_inefficiency['model'])
-        likelihood.load_state_dict(best_model_state_inefficiency['likelihood']) if not hparams.sngp else None
 
+        likelihood.load_state_dict(best_model_state_inefficiency['likelihood']) if not hparams.sngp else None
         model.eval()  
         likelihood.eval() if not hparams.sngp else None
         
         ood_model = copy.deepcopy(model)
         ood_likelihood = copy.deepcopy(likelihood) if not hparams.sngp else None
-        
-        best_model_state_ood = torch.load(results_dir / "best_model_ood.pth")
+
+        best_model_state_ood = torch.load(results_dir / "best_model_ood.pth",  weights_only=True)
         ood_model.load_state_dict(best_model_state_ood['model'])
         ood_likelihood.load_state_dict(best_model_state_ood['likelihood']) if not hparams.sngp else None
-        
-        ood_model.eval()  
+
+        ood_model.eval()
         ood_likelihood.eval() if not hparams.sngp else None
 
 
@@ -436,12 +441,8 @@ def main(hparams):
 
         evaluator.add_event_handler(Events.ITERATION_COMPLETED, accumulate_outputs)
 
-        test_state = evaluator.run(test_loader)
+        evaluator.run(test_loader)
 
-        # After evaluation, concatenate all the accumulated outputs
-        cal_smx = torch.cat(all_cal_smx, dim=0)
-        cal_labels = torch.cat(all_cal_labels, dim=0)
-        
         metrics = evaluator.state.metrics
         test_accuracy = metrics["accuracy"]
         test_loss = metrics["loss"]
@@ -453,18 +454,17 @@ def main(hparams):
         inefficiency_metric.cal_labels = cal_labels
 
         inefficiency_metric.update( (cal_smx, cal_labels) ) # Pass the entire validation set
-        # inefficiency_metric.update((test_state.output[0], test_state.output[1]))  # Pass the entire validation set
         inefficiency = inefficiency_metric.compute().item()
 
         _, auroc, aupr = get_ood_metrics(
-                hparams.dataset, "Alzheimer", ood_model, ood_likelihood
+                hparams.dataset, "SVHN", ood_model, ood_likelihood
             ) 
             
         print(f"Final Test Accuracy: {test_accuracy:.4f}, Final Test Loss: {test_loss:.4f}", 
                 f"Test_state Inefficiency: {inefficiency:.4f}", f"auroc {auroc} ", f"aupr {aupr} ")
             
-        results_to_save["auroc_ood_Alzheimer"] = auroc
-        results_to_save["aupr_ood_Alzheimer"] = aupr
+        results_to_save["auroc_ood_SVHN"] = auroc
+        results_to_save["aupr_ood_SVHN"] = aupr
         results_to_save['test_accuracy'] = test_accuracy
         results_to_save['test_loss'] = test_loss
         results_to_save['Test_inefficiency'] = inefficiency
@@ -501,9 +501,9 @@ def main(hparams):
     # Start training
     trainer.run(train_loader, max_epochs = hparams.epochs)
     scheduler.step()
-    writer.close()
-    # plot_training_history(plot_train_loss, plot_val_loss, plot_train_acc, plot_val_acc)
-    # plot_OOD(plot_auroc, plot_aupr)
+    # writer.close()
+    plot_training_history(plot_train_loss, plot_val_loss, plot_train_acc, plot_val_acc)
+    plot_OOD(plot_auroc, plot_aupr)
 
 # Define a function to parse arguments
 def parse_arguments():
@@ -511,23 +511,23 @@ def parse_arguments():
     parser.add_argument("--learning_rate", type = float, default = 0.1, help = "Learning rate") # sngp = 0.05
     parser.add_argument("--epochs", type = int, default = 200)
     parser.add_argument("--batch_size", type=int, default = 64, help= "Batch size to use for training")
-    parser.add_argument("--number_of_class", type = int, default = 4)
+    parser.add_argument("--number_of_class", type = int, default = 10)
     parser.add_argument("--alpha", type= float, default= 0.05, help="Conformal Rate" )
-    parser.add_argument("--dataset", default="Brain_tumors", choices=["Brain_tumors", "Alzheimer",'CIFAR10', 'CIFAR100', "SVHN"])
-    parser.add_argument("--n_inducing_points", type=int, default= 8, help="Number of inducing points" )
+    parser.add_argument("--dataset", default="CIFAR10", choices=["Brain_tumors", "Alzheimer", 'CIFAR100', "SVHN"])
+    parser.add_argument("--n_inducing_points", type=int, default= 10, help="Number of inducing points" )
     parser.add_argument("--beta", type=int, default= 0.1, help="Weight for conformal training loss")
     #action="store_true" -> false,
     parser.add_argument("--sngp", action="store_true", help="Use SNGP (RFF and Laplace) instead of a DUE (sparse GP)")
     parser.add_argument("--conformal_training", action="store_true", help= " conformal training or not" )
     parser.add_argument("--force_directory", default = "temp")
-    parser.add_argument("--weight_decay", type=float, default=1e-3, help="Weight decay") # 5e-4
+    parser.add_argument("--weight_decay", type=float, default= 1e-3, help="Weight decay") # 5e-4
     parser.add_argument("--dropout_rate", type=float, default = 0.3, help="Dropout rate")
     parser.add_argument("--kernel", default="RBF", choices=["RBF", "RQ", "Matern12", "Matern32", "Matern52"],help="Pick a kernel",)
     parser.add_argument("--no_spectral_conv", action="store_false",  dest="spectral_conv", help="Don't use spectral normalization on the convolutions",)
     parser.add_argument( "--adaptive_conformal", action="store_true", help="adaptive conformal")
     parser.add_argument("--no_spectral_bn", action="store_false", dest="spectral_bn", help="Don't use spectral normalization on the batch normalization layers",)
     parser.add_argument("--seed", type=int, default = 23, help = "Seed to use for training")
-    parser.add_argument("--coeff", type=float, default = 3, help = "Spectral normalization coefficient")
+    parser.add_argument("--coeff", type=float, default = 3., help = "Spectral normalization coefficient")
     parser.add_argument("--n_power_iterations", default=1, type=int, help = "Number of power iterations")
     parser.add_argument("--output_dir", default="./default", type=str, help = "Specify output directory")
     args = parser.parse_args()
@@ -535,15 +535,11 @@ def parse_arguments():
     
 def run_main(args):
     run = wandb.init()
-
     hparams = Hyperparameters(**vars(args))
-
     start_event = torch.cuda.Event(enable_timing=True)
     end_event = torch.cuda.Event(enable_timing=True)
     start_event.record()
-
     main(hparams)
-
     end_event.record()
     torch.cuda.synchronize()
     # Print the elapsed time
@@ -559,11 +555,11 @@ if __name__ == "__main__":
     # run_main(args)
 
     wandb.login()
+
     # Step 1: Define a sweep
     sweep_config = {'method': 'grid'}
-    metric = {'name': 'loss',
-             'goal': 'minimize' }
-    sweep_config['metric'] = metric
+    sweep_config['metric'] = {  'name': 'loss',
+                                'goal': 'minimize' }
 
     ### sngp
     # parameters = {'dropout_rate': {'values': [0.3, 0.4, 0.5]},
@@ -571,15 +567,16 @@ if __name__ == "__main__":
     #              }
 
     ### Inducing Points
-    parameters = {'dropout_rate': {'values': [0.3, 0.4, 0.5] },
-                  'learning_rate' : {'values':[0.01, 0.05, 0.1] },
-                  "n_inducing_points" : {'values':[8, 16, 20, 24]} }
+    # parameters = {'dropout_rate': {'values': [0.3, 0.4, 0.5] },
+    #               'learning_rate' : {'values':[0.01, 0.05, 0.1] },
+    #               "n_inducing_points" : {'values':[10, 20]} }
+    parameters = {
+                  'learning_rate' : {'values':[0.003, 0.01, 0.05, 0.1] },
+                  "n_inducing_points": {'values': [10, 20] }
+                }
 
-    parameters.update({'epochs': {'value': 1}})
     sweep_config['parameters'] = parameters
-
     ### Step 2: Initialize the Sweep
-    sweep_id = wandb.sweep(sweep = sweep_config, project = "SNGP")
-
+    sweep_id = wandb.sweep( sweep = sweep_config,  project = "CIFAR_Inducing_points")
     ###Step 4: Activate sweep agents
-    wandb.agent(sweep_id, function = partial(run_main, args = args ) , count = 36)
+    wandb.agent( sweep_id, function = partial(run_main, args = args ) , count = 8)

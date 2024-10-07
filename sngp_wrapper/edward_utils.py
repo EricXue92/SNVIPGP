@@ -190,7 +190,7 @@ class RandomFeatureGaussianProcess(nn.Module):
                  custom_random_features_initializer="orf",
                  gp_cov_likelihood='gaussian',
                  gp_output_imagenet_initializer=False,
-                 num_classes=4,):
+                 num_classes = 10,):
         """Initializes a random-feature Gaussian process layer instance.
 
         Args:

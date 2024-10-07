@@ -9,6 +9,7 @@ from PIL import Image
 
 # National Cancer Institute -- Cancer Imaging Program (CIP)
 # https://www.cancerimagingarchive.net/browse-collections/
+NUM_WORKERS = os.cpu_count()
 
 def get_SVHN():
     input_size = 32
@@ -17,13 +18,13 @@ def get_SVHN():
         [transforms.ToTensor(), transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))]
     )
     train_dataset = datasets.SVHN(
-        "data/SVHN", split="train", transform=transform, download=False
+        "data/SVHN", split="train", transform=transform, download=False,
     )
     train_size = int(0.8 * len(train_dataset))
     val_size = len(train_dataset) - train_size
     train_dataset, val_dataset = random_split(train_dataset, [train_size, val_size])
     test_dataset = datasets.SVHN(
-        "data/SVHN", split="test", transform=transform, download=False
+        "data/SVHN", split="test", transform=transform, download=False,
     )
     return input_size, num_classes, train_dataset, val_dataset, test_dataset
 
@@ -41,7 +42,7 @@ def get_CIFAR10():
         ]
     )
     train_dataset = datasets.CIFAR10(
-        "data/CIFAR10", train=True, transform=train_transform, download=True
+        "data/CIFAR10", train=True, transform=train_transform, download=False
     )
     train_size = int(0.8 * len(train_dataset))
     val_size = len(train_dataset) - train_size
@@ -49,7 +50,7 @@ def get_CIFAR10():
     train_dataset, val_dataset = random_split(train_dataset, [train_size, val_size])
     test_transform = transforms.Compose([transforms.ToTensor(), normalize])
     test_dataset = datasets.CIFAR10(
-        "data/CIFAR10", train=False, transform=test_transform, download=False
+        "data/CIFAR10", train=False, transform=test_transform, download=False,
     )
     return input_size, num_classes, train_dataset, val_dataset, test_dataset
 
@@ -67,7 +68,7 @@ def get_CIFAR100():
         ]
     )
     train_dataset = datasets.CIFAR100(
-        "data/CIFAR100", train=True, transform=train_transform, download=True
+        "data/CIFAR100", train=True, transform=train_transform, download=False
     )
     train_size = int(0.8 * len(train_dataset))
     val_size = len(train_dataset) - train_size
@@ -75,7 +76,7 @@ def get_CIFAR100():
 
     test_transform = transforms.Compose([transforms.ToTensor(), normalize])
     test_dataset = datasets.CIFAR100(
-        "data/CIFAR100", train=False, transform=test_transform, download=True
+        "data/CIFAR100", train=False, transform=test_transform, download=False
     )
 
     return input_size, num_classes, train_dataset, val_dataset, test_dataset
@@ -199,11 +200,11 @@ def get_dataset(dataset):  # root="./"
     return all_datasets[dataset]()
 
 
-def get_dataloaders(dataset, train_batch_size=64):  # 128
+def get_dataloaders(dataset, train_batch_size=32):  # 128
     ds = all_datasets[dataset]()
     input_size, num_classes, train_dataset, val_dataset, test_dataset = ds
 
-    kwargs = {"num_workers": 4, "pin_memory": True}
+    kwargs = {"num_workers": NUM_WORKERS, "pin_memory": True}
     train_loader = data.DataLoader(
         train_dataset, batch_size=train_batch_size, shuffle=True, **kwargs
     )
@@ -213,7 +214,7 @@ def get_dataloaders(dataset, train_batch_size=64):  # 128
     )
 
     test_loader = data.DataLoader(
-        test_dataset, batch_size=64, shuffle=False, **kwargs  # 1000
+        test_dataset, batch_size= 32, shuffle=False, **kwargs  # 1000
     )
 
     return train_loader, val_loader, test_loader, input_size, num_classes

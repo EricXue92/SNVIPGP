@@ -44,7 +44,7 @@ def set_saving_file(hparams):
 
 def main(hparams):
     # setting the wandb config
-    hparams.n_inducing_points = wandb.config.n_inducing_points
+    #hparams.n_inducing_points = wandb.config.n_inducing_points
     hparams.learning_rate = wandb.config.learning_rate
     hparams.dropout_rate = wandb.config.dropout_rate
 
@@ -566,14 +566,15 @@ if __name__ == "__main__":
     sweep_config['metric'] = metric
 
     ### sngp
-    # parameters = {'dropout_rate': {'values': [0.3, 0.4, 0.5]},
-    #               'learning_rate': {'values': [0.01, 0.05, 0.1]},
-    #              }
+    parameters = {'dropout_rate': {'values': [0.3, 0.4, 0.5]},
+                  'learning_rate': {'values': [0.01, 0.05, 0.1]},
+                 }
+
 
     ### Inducing Points
-    parameters = {'dropout_rate': {'values': [0.3, 0.4, 0.5] },
-                  'learning_rate' : {'values':[0.01, 0.05, 0.1] },
-                  "n_inducing_points" : {'values':[8, 16, 20, 24]} }
+    # parameters = {'dropout_rate': {'values': [0.3, 0.4, 0.5] },
+    #               'learning_rate' : {'values':[0.01, 0.05, 0.1] },
+    #               "n_inducing_points" : {'values':[8, 16, 20, 24]} }
 
     parameters.update({'epochs': {'value': 1}})
     sweep_config['parameters'] = parameters
@@ -582,4 +583,4 @@ if __name__ == "__main__":
     sweep_id = wandb.sweep(sweep = sweep_config, project = "SNGP")
 
     ###Step 4: Activate sweep agents
-    wandb.agent(sweep_id, function = partial(run_main, args = args ) , count = 36)
+    wandb.agent(sweep_id, function = partial(run_main, args = args ) , count = 9)

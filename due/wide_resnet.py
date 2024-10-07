@@ -60,7 +60,7 @@ class WideResNet(nn.Module):
         widen_factor = 8, # 10
         num_classes=None,
         dropout_rate=0.3,
-        coeff=3,
+        coeff = 3.,
         n_power_iterations=1,
     ):
         super().__init__()
@@ -163,6 +163,10 @@ class WideResNet(nn.Module):
         out = out.flatten(1)
 
         if self.num_classes is not None:
+
+            # If "nosoftmax" is in kwargs and set to True,
+            # it means that softmax (or log-softmax) should not be applied to the output logits
+
             if "nosoftmax" in kwargs and kwargs["nosoftmax"]:
                 nosoftmax = True
                 kwargs.pop("nosoftmax")
@@ -170,6 +174,9 @@ class WideResNet(nn.Module):
                 nosoftmax = False
 
             out = self.linear(out, **kwargs)
+
+            # output, uncertainty = model(data, kwargs={"update_precision_matrix": False,
+            #                                           "return_covariance": True, "nosoftmax": True})
 
             if isinstance(out, tuple):
                 logits, uncertainty = out

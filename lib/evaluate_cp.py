@@ -8,6 +8,7 @@ from .datasets import get_dataset
 from lib.datasets import get_Brain_tumors, get_Alzheimer, get_CIFAR10, get_CIFAR100, get_SVHN
 from ignite.metrics import Metric
 
+NUM_WORKERS = os.cpu_count()
 
 class ConformalTrainingLoss(nn.Module):
     def __init__(self, alpha, beta, temperature, sngp_flag):
@@ -128,17 +129,20 @@ def conformal_evaluate(model, likelihood, dataset, adaptive_flag, alpha=0.05):
         _, _, _, val_dataset, test_dataset = get_SVHN()
     elif dataset == 'CIFAR100':
         _, _, _, val_dataset, test_dataset = get_CIFAR100()
+    else:
+        print("Invalid dataset")
 
+    # batch_size= 128
     if isinstance(val_dataset, torch.utils.data.Dataset):
         val_dataloader = torch.utils.data.DataLoader(
-            val_dataset, batch_size=128, shuffle=False, num_workers=4, pin_memory=True
+            val_dataset, batch_size= 128, shuffle=False, num_workers=NUM_WORKERS, pin_memory=True
         )
     else:
         val_dataloader = val_dataset
 
     if isinstance(test_dataset, torch.utils.data.Dataset):
         test_dataloader = torch.utils.data.DataLoader(
-            test_dataset, batch_size=128, shuffle=False, num_workers=4, pin_memory=True
+            test_dataset, batch_size= 128, shuffle=False, num_workers=NUM_WORKERS, pin_memory=True
         )
     else:
         test_dataloader = test_dataset
