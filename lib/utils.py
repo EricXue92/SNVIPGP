@@ -19,7 +19,6 @@ def set_seed(seed):
     torch.backends.cudnn.benchmark = False
     return seed
 
-
 def plot_training_history(train_loss, val_loss, train_acc, val_acc):
     epochs = range(1, len(train_loss) + 1)
     plt.figure(figsize=(12, 5))

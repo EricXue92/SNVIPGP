@@ -4,7 +4,7 @@ import numpy as np
 import torch
 from torch.utils import data
 from torchvision import datasets, transforms
-from torch.utils.data import Dataset, ConcatDataset, random_split
+from torch.utils.data import Dataset, ConcatDataset, random_split, DataLoader
 from PIL import Image
 
 # National Cancer Institute -- Cancer Imaging Program (CIP)
@@ -18,13 +18,13 @@ def get_SVHN():
         [transforms.ToTensor(), transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))]
     )
     train_dataset = datasets.SVHN(
-        "data/SVHN", split="train", transform=transform, download=False,
+        "data/SVHN", split="train", transform=transform, download=False
     )
     train_size = int(0.8 * len(train_dataset))
     val_size = len(train_dataset) - train_size
     train_dataset, val_dataset = random_split(train_dataset, [train_size, val_size])
     test_dataset = datasets.SVHN(
-        "data/SVHN", split="test", transform=transform, download=False,
+        "data/SVHN", split="test", transform=transform, download=False
     )
     return input_size, num_classes, train_dataset, val_dataset, test_dataset
 
@@ -50,7 +50,7 @@ def get_CIFAR10():
     train_dataset, val_dataset = random_split(train_dataset, [train_size, val_size])
     test_transform = transforms.Compose([transforms.ToTensor(), normalize])
     test_dataset = datasets.CIFAR10(
-        "data/CIFAR10", train=False, transform=test_transform, download=False,
+        "data/CIFAR10", train=False, transform=test_transform, download=False
     )
     return input_size, num_classes, train_dataset, val_dataset, test_dataset
 
@@ -129,7 +129,7 @@ def get_Brain_tumors():
     train_size = int(0.8 * len(data))
     val_size = int(0.1 * len(data))
     test_size = len(data) - train_size - val_size
-    train_dataset, val_dataset, test_dataset = torch.utils.data.random_split(
+    train_dataset, val_dataset, test_dataset = random_split(
         data, [train_size, val_size, test_size]
     )
 
@@ -172,8 +172,7 @@ def get_Alzheimer():
     train_size = int(0.8 * len(data))
     val_size = int(0.1 * len(data))
     test_size = len(data) - train_size - val_size
-    train_dataset, val_dataset, test_dataset = torch.utils.data.random_split(data,
-                                                                             [train_size, val_size, test_size])
+    train_dataset, val_dataset, test_dataset = random_split(data,[train_size, val_size, test_size] )
 
     train_dataset = TransformedDataset(train_dataset, transform=train_transform)
     val_dataset = TransformedDataset(val_dataset, transform=val_test_transform)
@@ -195,28 +194,22 @@ all_datasets = {
     "Alzheimer": get_Alzheimer
 }
 
-
 def get_dataset(dataset):  # root="./"
     return all_datasets[dataset]()
 
-
-def get_dataloaders(dataset, train_batch_size=32):  # 128
+def get_dataloaders(dataset, train_batch_size=64):  # 128
     ds = all_datasets[dataset]()
     input_size, num_classes, train_dataset, val_dataset, test_dataset = ds
-
     kwargs = {"num_workers": NUM_WORKERS, "pin_memory": True}
-    train_loader = data.DataLoader(
+    train_loader = DataLoader(
         train_dataset, batch_size=train_batch_size, shuffle=True, **kwargs
     )
-
-    val_loader = data.DataLoader(
-        val_dataset, batch_size=train_batch_size, shuffle=True, **kwargs
+    val_loader = DataLoader(
+        val_dataset, batch_size=train_batch_size, shuffle=False, **kwargs
     )
-
     test_loader = data.DataLoader(
-        test_dataset, batch_size= 32, shuffle=False, **kwargs  # 1000
+        test_dataset, batch_size= train_batch_size, shuffle=False, **kwargs  # 1000
     )
-
     return train_loader, val_loader, test_loader, input_size, num_classes
 
 

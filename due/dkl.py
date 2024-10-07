@@ -41,7 +41,7 @@ def initial_values(train_dataset, feature_extractor, n_inducing_points):
 
 def _get_initial_inducing_points(f_X_sample, n_inducing_points):
     kmeans = cluster.MiniBatchKMeans(
-        n_clusters=n_inducing_points, batch_size=n_inducing_points * 10
+        n_clusters = n_inducing_points, batch_size = n_inducing_points * 10
     )
     kmeans.fit(f_X_sample)
     initial_inducing_points = torch.from_numpy(kmeans.cluster_centers_)

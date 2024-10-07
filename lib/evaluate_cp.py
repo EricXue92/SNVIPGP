@@ -7,6 +7,7 @@ import gpytorch
 from .datasets import get_dataset
 from lib.datasets import get_Brain_tumors, get_Alzheimer, get_CIFAR10, get_CIFAR100, get_SVHN
 from ignite.metrics import Metric
+from torch.utils.data import Dataset, DataLoader
 
 NUM_WORKERS = os.cpu_count()
 
@@ -19,7 +20,6 @@ class ConformalTrainingLoss(nn.Module):
         self.sngp_flag = sngp_flag
 
     def forward(self, probabilities, y):
-
         # probabilities = torch.log(probabilities)
         conformity_score = probabilities[torch.arange(len(probabilities)), y]
         tau = torch.quantile(conformity_score, self.alpha)
@@ -133,16 +133,16 @@ def conformal_evaluate(model, likelihood, dataset, adaptive_flag, alpha=0.05):
         print("Invalid dataset")
 
     # batch_size= 128
-    if isinstance(val_dataset, torch.utils.data.Dataset):
-        val_dataloader = torch.utils.data.DataLoader(
-            val_dataset, batch_size= 128, shuffle=False, num_workers=NUM_WORKERS, pin_memory=True
+    if isinstance(val_dataset, Dataset):
+        val_dataloader = DataLoader(
+            val_dataset, batch_size=64, shuffle=False, num_workers=NUM_WORKERS, pin_memory=True
         )
     else:
         val_dataloader = val_dataset
 
-    if isinstance(test_dataset, torch.utils.data.Dataset):
-        test_dataloader = torch.utils.data.DataLoader(
-            test_dataset, batch_size= 128, shuffle=False, num_workers=NUM_WORKERS, pin_memory=True
+    if isinstance(test_dataset, Dataset):
+        test_dataloader = DataLoader(
+            test_dataset, batch_size=64, shuffle=False, num_workers=NUM_WORKERS, pin_memory=True
         )
     else:
         test_dataloader = test_dataset

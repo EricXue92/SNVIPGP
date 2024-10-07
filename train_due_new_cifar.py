@@ -1,12 +1,10 @@
 import os
 os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
-
 import argparse
 import copy
 import json
 import torch
 import torch.nn.functional as F
-
 # from torch.utils.tensorboard import SummaryWriter
 from ignite.engine import Events, Engine
 from ignite.metrics import Accuracy, Average, Loss
@@ -46,6 +44,7 @@ def set_saving_file(hparams):
 
 
 def main(hparams):
+
     # setting the wandb config
     hparams.n_inducing_points = wandb.config.n_inducing_points
     hparams.learning_rate = wandb.config.learning_rate
@@ -61,8 +60,8 @@ def main(hparams):
 
     kwargs = {"num_workers": NUM_WORKERS, "pin_memory": True}
     train_loader = DataLoader(train_dataset, batch_size = hparams.batch_size, shuffle = True, drop_last = True, **kwargs) #
-    val_loader = DataLoader(val_dataset, batch_size = 128, shuffle = False, drop_last = True,  **kwargs)
-    test_loader = DataLoader(test_dataset, batch_size= 128, shuffle = False, drop_last = True,  **kwargs)
+    val_loader = DataLoader(val_dataset, batch_size = hparams.batch_size, shuffle = False, drop_last = True,  **kwargs)
+    test_loader = DataLoader(test_dataset, batch_size= hparams.batch_size, shuffle = False, drop_last = True,  **kwargs)
 
     if hparams.n_inducing_points is None:
         hparams.n_inducing_points = num_classes
@@ -76,7 +75,7 @@ def main(hparams):
         hparams.spectral_conv,
         hparams.spectral_bn,
         dropout_rate = hparams.dropout_rate,
-        coeff = hparams.coeff, #3
+        coeff = hparams.coeff, #3.0
         n_power_iterations = hparams.n_power_iterations,
     ).cuda()
         
@@ -148,6 +147,7 @@ def main(hparams):
     #### Note:
     parameters = [ {"params": model.parameters() } ]
     ###
+
     if not hparams.sngp:
         parameters.append( {"params": likelihood.parameters() } )
 
@@ -198,8 +198,6 @@ def main(hparams):
             loss = loss_fn(y_pred, y)
             
         loss.backward()
-        ########## 
-        # torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0) # Clip gradients
         optimizer.step()
         return y_pred, y, loss.item()
 
@@ -302,9 +300,10 @@ def main(hparams):
         # writer.add_scalar("Train/Accuracy", train_acc, trainer.state.epoch)
 
         # if (trainer.state.epoch > 2 and trainer.state.epoch % 5 == 0) or trainer.state.epoch == 1:
+
         _, auroc, aupr = get_ood_metrics(
-        hparams.dataset, "SVHN", model, likelihood
-        )
+        hparams.dataset, "SVHN", model, likelihood )
+
         plot_auroc.append(auroc)
         plot_aupr.append(aupr)
         
@@ -337,8 +336,8 @@ def main(hparams):
         val_state = evaluator.run(val_loader)
 
         # After evaluation, concatenate all the accumulated outputs
-        cal_smx = torch.cat(all_cal_smx, dim = 0)
-        cal_labels = torch.cat(all_cal_labels, dim = 0)
+        cal_smx = torch.cat(all_cal_smx, dim=0)
+        cal_labels = torch.cat(all_cal_labels, dim=0)
         
         # print("cal_smx", cal_smx.shape, "cal_labels", cal_labels.shape)
         
@@ -426,7 +425,6 @@ def main(hparams):
         ood_model.eval()
         ood_likelihood.eval() if not hparams.sngp else None
 
-
         all_cal_smx = []
         all_cal_labels = []
 
@@ -458,7 +456,7 @@ def main(hparams):
 
         _, auroc, aupr = get_ood_metrics(
                 hparams.dataset, "SVHN", ood_model, ood_likelihood
-            ) 
+            )
             
         print(f"Final Test Accuracy: {test_accuracy:.4f}, Final Test Loss: {test_loss:.4f}", 
                 f"Test_state Inefficiency: {inefficiency:.4f}", f"auroc {auroc} ", f"aupr {aupr} ")
@@ -470,8 +468,8 @@ def main(hparams):
         results_to_save['Test_inefficiency'] = inefficiency
 
         if hparams.sngp:
-            coverage_mean, ineff_list = conformal_evaluate(model, likelihood = None, dataset = hparams.dataset, 
-                                                        adaptive_flag = hparams.adaptive_conformal, alpha = hparams.alpha)
+            coverage_mean, ineff_list = conformal_evaluate(model, likelihood=None, dataset=hparams.dataset,
+                                                        adaptive_flag=hparams.adaptive_conformal, alpha=hparams.alpha)
             results_to_save["coverage_mean_sngp"] = str(coverage_mean)
             results_to_save["ineff_list_sngp"] = str(ineff_list)
 
@@ -480,8 +478,8 @@ def main(hparams):
             (results_dir / "results_sngp.json").write_text(results_json)
 
         else:
-            coverage_mean, ineff_list = conformal_evaluate(model, likelihood, dataset = hparams.dataset, 
-                                                        adaptive_flag = hparams.adaptive_conformal, alpha = hparams.alpha )
+            coverage_mean, ineff_list = conformal_evaluate(model, likelihood, dataset=hparams.dataset,
+                                                        adaptive_flag=hparams.adaptive_conformal, alpha=hparams.alpha )
             results_to_save["coverage_mean_gp"] = str(coverage_mean)
             results_to_save["ineff_list_gp"] = str(ineff_list)
 
@@ -499,7 +497,7 @@ def main(hparams):
     # Adding a progress bar
     ProgressBar(persist=True).attach(trainer)
     # Start training
-    trainer.run(train_loader, max_epochs = hparams.epochs)
+    trainer.run(train_loader, max_epochs=hparams.epochs)
     scheduler.step()
     # writer.close()
     plot_training_history(plot_train_loss, plot_val_loss, plot_train_acc, plot_val_acc)
@@ -571,12 +569,12 @@ if __name__ == "__main__":
     #               'learning_rate' : {'values':[0.01, 0.05, 0.1] },
     #               "n_inducing_points" : {'values':[10, 20]} }
     parameters = {
-                  'learning_rate' : {'values':[0.003, 0.01, 0.05, 0.1] },
-                  "n_inducing_points": {'values': [10, 20] }
+                  'learning_rate' : {'values':[0.003] },
+                  "n_inducing_points": {'values': [10] }
                 }
 
     sweep_config['parameters'] = parameters
     ### Step 2: Initialize the Sweep
-    sweep_id = wandb.sweep( sweep = sweep_config,  project = "CIFAR_Inducing_points")
+    sweep_id = wandb.sweep( sweep=sweep_config,  project="CIFAR_Inducing_points")
     ###Step 4: Activate sweep agents
-    wandb.agent( sweep_id, function = partial(run_main, args = args ) , count = 8)
+    wandb.agent( sweep_id, function=partial(run_main, args=args ) , count=1)
