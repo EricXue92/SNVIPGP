@@ -3,21 +3,14 @@
   <component name="PublishConfigData" autoUpload="Always" serverName="xuelong@158.132.205.96:6666 agent" remoteFilesAllowedToDisappearOnAutoupload="false" confirmBeforeUploading="false">
     <option name="confirmBeforeUploading" value="false" />
     <serverData>
-      <paths name="xl@158.132.205.96:7777 password">
-        <serverdata>
-          <mappings>
-            <mapping deploy="/home/xl/DUE" local="$PROJECT_DIR$" web="/" />
-          </mappings>
-        </serverdata>
-      </paths>
-      <paths name="xl@158.132.205.96:7777 password (4)">
-        <serverdata>
-          <mappings>
-            <mapping deploy="/home/xl/DUE" local="$PROJECT_DIR$" />
-          </mappings>
-        </serverdata>
-      </paths>
       <paths name="xuelong@158.132.205.96:6666 agent">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/home/xuelong/DUE" local="$PROJECT_DIR$" />
+          </mappings>
+        </serverdata>
+      </paths>
+      <paths name="xuelong@158.132.205.96:6666 password">
         <serverdata>
           <mappings>
             <mapping deploy="/home/xuelong/DUE" local="$PROJECT_DIR$" />

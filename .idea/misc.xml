@@ -3,5 +3,5 @@
   <component name="Black">
     <option name="sdkName" value="Remote Python 3.12.2 (sftp://xuelong@158.132.205.96:6666/home/xuelong/.conda/envs/xuelong-torch/bin/python)" />
   </component>
-  <component name="ProjectRootManager" version="2" project-jdk-name="xuelong-torch (2)" project-jdk-type="Python SDK" />
+  <component name="ProjectRootManager" version="2" project-jdk-name="Remote Python 3.12.2 (sftp://xuelong@158.132.205.96:6666/home/xuelong/.conda/envs/xuelong-torch/bin/python)" project-jdk-type="Python SDK" />
 </project>

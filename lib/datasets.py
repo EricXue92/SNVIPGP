@@ -98,6 +98,7 @@ class TransformedDataset(Dataset):
 
 
 # https://pytorch.org/tutorials/beginner/introyt/introyt1_tutorial.html
+# https://www.kaggle.com/datasets/thomasdubail/brain-tumors-256x256?resource=download
 # 3 * 256 * 256
 def get_Brain_tumors():
     image_path = "./data/Brain_tumors"
@@ -144,6 +145,7 @@ def get_Brain_tumors():
     # std = torch.std(x, dim=(0,2,3)) #tensor([0.1891, 0.1891, 0.1891])
     return input_size, num_classes, train_dataset, val_dataset, test_dataset
 
+## https://www.kaggle.com/datasets/uraninjo/augmented-alzheimer-mri-dataset
 # 3 * 208 * 176
 def get_Alzheimer():
     image_path = "./data/Alzheimer"

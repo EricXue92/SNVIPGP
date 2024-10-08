@@ -107,11 +107,11 @@ def main(hparams):
         # model = convert_to_sn_my(model, spec_norm_replace_list, spec_norm_bound)
         
         # Equipping the model with laplace approximation 
-        replace_layer_with_gaussian(container = model, signature="linear", **GP_KWARGS) 
+        replace_layer_with_gaussian(container=model, signature="linear", **GP_KWARGS)
         
         ########## Here decide whether conformal training 
         if hparams.conformal_training:
-            loss_fn = ConformalTrainingLoss(alpha = hparams.alpha, beta = hparams.beta, temperature = 1, sngp_flag = True)
+            loss_fn = ConformalTrainingLoss(alpha=hparams.alpha, beta=hparams.beta, temperature=1, sngp_flag=True)
         else:
             loss_fn = F.cross_entropy
         likelihood = None
@@ -121,7 +121,7 @@ def main(hparams):
             train_dataset, feature_extractor, hparams.n_inducing_points )
         
         gp = dkl.GP(
-            num_outputs = num_classes,
+            num_outputs=num_classes,
             initial_lengthscale=initial_lengthscale,
             initial_inducing_points=initial_inducing_points,
             kernel=hparams.kernel,
@@ -129,15 +129,22 @@ def main(hparams):
         
         # Model for inducing points 
         model = dkl.DKL(feature_extractor, gp)
-        likelihood = SoftmaxLikelihood(num_classes = num_classes, mixing_weights = False) 
+        likelihood = SoftmaxLikelihood(num_classes=num_classes, mixing_weights=False)
         likelihood = likelihood.cuda()
         elbo_fn = VariationalELBO(likelihood, gp, num_data = len(train_dataset))
         loss_fn = lambda x, y: -elbo_fn(x, y)
         
     model = model.cuda()
-  
+
+    #### Note:
+    parameters = [ {"params": model.parameters() } ]
+    ###
+
+    if not hparams.sngp:
+        parameters.append( {"params": likelihood.parameters() } )
     optimizer = torch.optim.AdamW(
-        model.parameters(),
+        # model.parameters(),
+        parameters,
         lr=hparams.learning_rate,
         weight_decay=hparams.weight_decay
     )
@@ -152,7 +159,7 @@ def main(hparams):
     # milestones = [30, 40, 50]
     
     scheduler = torch.optim.lr_scheduler.MultiStepLR(
-        optimizer, milestones = milestones, gamma = 0.2
+        optimizer, milestones=milestones, gamma=0.2
     )
 
     best_inefficiency = float('inf')
@@ -177,7 +184,7 @@ def main(hparams):
         
         if hparams.conformal_training and not hparams.sngp:
             ### Conformal training for inducing point GP
-            CP_size_fn = ConformalTrainingLoss(alpha = hparams.alpha, beta = hparams.beta, temperature = 1, sngp_flag = False)
+            CP_size_fn = ConformalTrainingLoss(alpha = hparams.alpha, beta=hparams.beta, temperature = 1, sngp_flag = False)
             loss_cn = loss_fn(y_pred, y)
             y_pred_temp = y_pred.to_data_independent_dist()
             y_pred_temp = likelihood(y_pred_temp).probs.mean(0)
@@ -267,6 +274,13 @@ def main(hparams):
             score_function = score_function,
             trainer = trainer  
     )
+
+    #### Add an event handler for logging when early stopping is triggered
+    @trainer.on(Events.EPOCH_COMPLETED)
+    def log_early_stopping(engine):
+        if early_stopping_handler.should_early_stop:
+            print(f"Early stopping triggered at epoch {engine.state.epoch}.")
+
     evaluator.add_event_handler(Events.COMPLETED, early_stopping_handler)
 
     # Attach the handler that logs results after each epoch

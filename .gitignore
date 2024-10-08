@@ -1,6 +1,7 @@
-data
 runs
 *pdf
 .idea
 .DS_Store
 *log
+data
+*png

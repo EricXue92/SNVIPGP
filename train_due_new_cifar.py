@@ -1,5 +1,9 @@
 import os
 os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
+
+# export CUDA_VISIBLE_DEVICES=1
+# python my_cuda_app.py
+
 import argparse
 import copy
 import json
@@ -42,9 +46,7 @@ def set_saving_file(hparams):
         results_dir = Path(hparams.force_directory)
     return results_dir
 
-
 def main(hparams):
-
     # setting the wandb config
     hparams.n_inducing_points = wandb.config.n_inducing_points
     hparams.learning_rate = wandb.config.learning_rate
@@ -59,9 +61,9 @@ def main(hparams):
     input_size, num_classes, train_dataset, val_dataset, test_dataset = ds
 
     kwargs = {"num_workers": NUM_WORKERS, "pin_memory": True}
-    train_loader = DataLoader(train_dataset, batch_size = hparams.batch_size, shuffle = True, drop_last = True, **kwargs) #
-    val_loader = DataLoader(val_dataset, batch_size = hparams.batch_size, shuffle = False, drop_last = True,  **kwargs)
-    test_loader = DataLoader(test_dataset, batch_size= hparams.batch_size, shuffle = False, drop_last = True,  **kwargs)
+    train_loader = DataLoader(train_dataset, batch_size=hparams.batch_size, shuffle=True, drop_last=True, **kwargs) #
+    val_loader = DataLoader(val_dataset, batch_size=hparams.batch_size, shuffle=False, drop_last=True,  **kwargs)
+    test_loader = DataLoader(test_dataset, batch_size=hparams.batch_size, shuffle=False, drop_last=True,  **kwargs)
 
     if hparams.n_inducing_points is None:
         hparams.n_inducing_points = num_classes
@@ -74,9 +76,9 @@ def main(hparams):
         input_size,
         hparams.spectral_conv,
         hparams.spectral_bn,
-        dropout_rate = hparams.dropout_rate,
-        coeff = hparams.coeff, #3.0
-        n_power_iterations = hparams.n_power_iterations,
+        dropout_rate=hparams.dropout_rate,
+        coeff=hparams.coeff, #3.0
+        n_power_iterations=hparams.n_power_iterations,
     ).cuda()
         
     if hparams.sngp:
@@ -85,10 +87,10 @@ def main(hparams):
             input_size,
             hparams.spectral_conv,
             hparams.spectral_bn,
-            dropout_rate = hparams.dropout_rate,
-            coeff = hparams.coeff,
-            n_power_iterations = hparams.n_power_iterations,
-            num_classes = hparams.number_of_class,
+            dropout_rate=hparams.dropout_rate,
+            coeff=hparams.coeff,
+            n_power_iterations=hparams.n_power_iterations,
+            num_classes=hparams.number_of_class,
         )
 
         # spec_norm_replace_list = ["Linear", "Conv2D"]
@@ -115,11 +117,11 @@ def main(hparams):
         # model = convert_to_sn_my(model, spec_norm_replace_list, spec_norm_bound)
         
         # Equipping the model with laplace approximation 
-        replace_layer_with_gaussian(container = model, signature="linear", **GP_KWARGS) 
+        replace_layer_with_gaussian(container=model, signature="linear", **GP_KWARGS)
         
         ########## Here decide whether conformal training 
         if hparams.conformal_training:
-            loss_fn = ConformalTrainingLoss(alpha = hparams.alpha, beta = hparams.beta, temperature = 1, sngp_flag = True)
+            loss_fn = ConformalTrainingLoss(alpha=hparams.alpha, beta=hparams.beta, temperature=1, sngp_flag=True)
         else:
             loss_fn = F.cross_entropy
 
@@ -127,9 +129,8 @@ def main(hparams):
     else:
         initial_inducing_points, initial_lengthscale = dkl.initial_values(
             train_dataset, feature_extractor, hparams.n_inducing_points )
-        
         gp = dkl.GP(
-            num_outputs = num_classes,
+            num_outputs=num_classes,
             initial_lengthscale=initial_lengthscale,
             initial_inducing_points=initial_inducing_points,
             kernel=hparams.kernel,
@@ -137,10 +138,10 @@ def main(hparams):
         
         # Model for inducing points 
         model = dkl.DKL(feature_extractor, gp)
-        likelihood = SoftmaxLikelihood(num_features = 10, num_classes = num_classes, mixing_weights = False)
+        likelihood = SoftmaxLikelihood(num_classes=num_classes, mixing_weights=False)
         likelihood = likelihood.cuda()
 
-        elbo_fn = VariationalELBO(likelihood, gp, num_data = len(train_dataset))
+        elbo_fn = VariationalELBO(likelihood, gp, num_data=len(train_dataset))
         loss_fn = lambda x, y: -elbo_fn(x, y)
 
     model = model.cuda()
@@ -154,15 +155,15 @@ def main(hparams):
     optimizer = torch.optim.AdamW(
         # model.parameters(),
         parameters,
-        lr = hparams.learning_rate,
-        weight_decay = hparams.weight_decay
+        lr=hparams.learning_rate,
+        weight_decay=hparams.weight_decay
     )
     
     milestones = [60, 120, 160]
     # milestones = [30, 40, 50]
     
     scheduler = torch.optim.lr_scheduler.MultiStepLR(
-        optimizer, milestones = milestones, gamma = 0.2
+        optimizer, milestones=milestones, gamma=0.2
     )
 
     best_inefficiency = float('inf')
@@ -186,7 +187,7 @@ def main(hparams):
         
         if hparams.conformal_training and not hparams.sngp:
             ### Conformal training for inducing point GP
-            CP_size_fn = ConformalTrainingLoss(alpha = hparams.alpha, beta = hparams.beta, temperature = 1, sngp_flag = False)
+            CP_size_fn = ConformalTrainingLoss(alpha=hparams.alpha, beta=hparams.beta, temperature=1, sngp_flag=False)
             loss_cn = loss_fn(y_pred, y)
             y_pred_temp = y_pred.to_data_independent_dist()
             y_pred_temp = likelihood(y_pred_temp).probs.mean(0)
@@ -232,13 +233,13 @@ def main(hparams):
     trainer = Engine(step)
     evaluator = Engine(eval_step)
 
-    metric = Average(output_transform = training_loss)
+    metric = Average(output_transform=training_loss)
     metric.attach(trainer, "loss")
 
-    metric = Accuracy(output_transform = training_accuracy)
+    metric = Accuracy(output_transform=training_accuracy)
     metric.attach(trainer, "accuracy")
 
-    metric = Accuracy(output_transform = output_transform)
+    metric = Accuracy(output_transform=output_transform)
     metric.attach(evaluator, "accuracy")
 
     if hparams.sngp:
@@ -253,7 +254,7 @@ def main(hparams):
         def reset_precision_matrix(trainer):
             model.linear.reset_covariance_matrix()
             
-    inefficiency_metric = ConformalInefficiency(alpha = hparams.alpha)
+    inefficiency_metric = ConformalInefficiency(alpha=hparams.alpha)
     ##inefficiency = inefficiency_metric.compute().item()
     inefficiency = inefficiency_metric.compute()
 
@@ -263,12 +264,20 @@ def main(hparams):
         return -val_loss
 
     early_stopping_handler = EarlyStopping(
-            patience = 20,  # Stop after 20 epochs without improvement
-            score_function = score_function,
-            trainer = trainer
+            patience= 2,  # Stop after 20 epochs without improvement
+            score_function=score_function,
+            trainer=trainer
     )
 
+    # Add an event handler for logging when early stopping is triggered
+    @trainer.on(Events.EPOCH_COMPLETED)
+    def log_early_stopping(engine):
+        if early_stopping_handler.should_early_stop:
+            print(f"Early stopping triggered at epoch {engine.state.epoch}.")
+
     evaluator.add_event_handler(Events.COMPLETED, early_stopping_handler)
+
+
 
     # Attach the handler that logs results after each epoch
 
@@ -313,8 +322,7 @@ def main(hparams):
             # writer.add_scalar("OoD/auroc", auroc, trainer.state.epoch)
             # writer.add_scalar("OoD/auprc", aupr, trainer.state.epoch)
         
-        all_cal_smx = []
-        all_cal_labels = []
+        all_cal_smx, all_cal_labels = [], []
 
         # This function is called after each batch of the evaluation loop (evaluator.run(val_loader))
         # collecting the softmax outputs and the corresponding ground truth labels
@@ -425,8 +433,7 @@ def main(hparams):
         ood_model.eval()
         ood_likelihood.eval() if not hparams.sngp else None
 
-        all_cal_smx = []
-        all_cal_labels = []
+        all_cal_smx, all_cal_labels = [], []
 
         def accumulate_outputs(engine):
             smx, labels = engine.state.output
@@ -448,8 +455,7 @@ def main(hparams):
         cal_smx = torch.cat(all_cal_smx, dim=0)
         cal_labels = torch.cat(all_cal_labels, dim=0)
 
-        inefficiency_metric.cal_smx = cal_smx
-        inefficiency_metric.cal_labels = cal_labels
+        inefficiency_metric.cal_smx, inefficiency_metric.cal_labels = cal_smx, cal_labels
 
         inefficiency_metric.update( (cal_smx, cal_labels) ) # Pass the entire validation set
         inefficiency = inefficiency_metric.compute().item()
@@ -506,26 +512,26 @@ def main(hparams):
 # Define a function to parse arguments
 def parse_arguments():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--learning_rate", type = float, default = 0.1, help = "Learning rate") # sngp = 0.05
-    parser.add_argument("--epochs", type = int, default = 200)
-    parser.add_argument("--batch_size", type=int, default = 64, help= "Batch size to use for training")
-    parser.add_argument("--number_of_class", type = int, default = 10)
-    parser.add_argument("--alpha", type= float, default= 0.05, help="Conformal Rate" )
+    parser.add_argument("--learning_rate", type=float, default=0.1, help="Learning rate") # sngp = 0.05
+    parser.add_argument("--epochs", type=int, default=100)
+    parser.add_argument("--batch_size", type=int, default=64, help="Batch size to use for training")
+    parser.add_argument("--number_of_class", type=int, default=10)
+    parser.add_argument("--alpha", type=float, default=0.05, help="Conformal Rate" )
     parser.add_argument("--dataset", default="CIFAR10", choices=["Brain_tumors", "Alzheimer", 'CIFAR100', "SVHN"])
-    parser.add_argument("--n_inducing_points", type=int, default= 10, help="Number of inducing points" )
-    parser.add_argument("--beta", type=int, default= 0.1, help="Weight for conformal training loss")
+    parser.add_argument("--n_inducing_points", type=int, default=10, help="Number of inducing points" )
+    parser.add_argument("--beta", type=int, default=0.1, help="Weight for conformal training loss")
     #action="store_true" -> false,
     parser.add_argument("--sngp", action="store_true", help="Use SNGP (RFF and Laplace) instead of a DUE (sparse GP)")
-    parser.add_argument("--conformal_training", action="store_true", help= " conformal training or not" )
-    parser.add_argument("--force_directory", default = "temp")
-    parser.add_argument("--weight_decay", type=float, default= 1e-3, help="Weight decay") # 5e-4
-    parser.add_argument("--dropout_rate", type=float, default = 0.3, help="Dropout rate")
+    parser.add_argument("--conformal_training", action="store_true", help="conformal training or not" )
+    parser.add_argument("--force_directory", default ="temp")
+    parser.add_argument("--weight_decay", type=float, default=1e-3, help="Weight decay") # 5e-4
+    parser.add_argument("--dropout_rate", type=float, default =0.3, help="Dropout rate")
     parser.add_argument("--kernel", default="RBF", choices=["RBF", "RQ", "Matern12", "Matern32", "Matern52"],help="Pick a kernel",)
     parser.add_argument("--no_spectral_conv", action="store_false",  dest="spectral_conv", help="Don't use spectral normalization on the convolutions",)
     parser.add_argument( "--adaptive_conformal", action="store_true", help="adaptive conformal")
     parser.add_argument("--no_spectral_bn", action="store_false", dest="spectral_bn", help="Don't use spectral normalization on the batch normalization layers",)
-    parser.add_argument("--seed", type=int, default = 23, help = "Seed to use for training")
-    parser.add_argument("--coeff", type=float, default = 3., help = "Spectral normalization coefficient")
+    parser.add_argument("--seed", type=int, default=23, help = "Seed to use for training")
+    parser.add_argument("--coeff", type=float, default=3., help = "Spectral normalization coefficient")
     parser.add_argument("--n_power_iterations", default=1, type=int, help = "Number of power iterations")
     parser.add_argument("--output_dir", default="./default", type=str, help = "Specify output directory")
     args = parser.parse_args()
@@ -553,28 +559,26 @@ if __name__ == "__main__":
     # run_main(args)
 
     wandb.login()
-
     # Step 1: Define a sweep
     sweep_config = {'method': 'grid'}
     sweep_config['metric'] = {  'name': 'loss',
                                 'goal': 'minimize' }
-
     ### sngp
     # parameters = {'dropout_rate': {'values': [0.3, 0.4, 0.5]},
     #               'learning_rate': {'values': [0.01, 0.05, 0.1]},
     #              }
 
     ### Inducing Points
-    # parameters = {'dropout_rate': {'values': [0.3, 0.4, 0.5] },
-    #               'learning_rate' : {'values':[0.01, 0.05, 0.1] },
-    #               "n_inducing_points" : {'values':[10, 20]} }
-    parameters = {
-                  'learning_rate' : {'values':[0.003] },
-                  "n_inducing_points": {'values': [10] }
-                }
+    p = {
+                  'learning_rate' : {'values':[0.003, 0.01, 0.05, 0.1] },
+                  "n_inducing_points" : {'values':[10, 20]} }
+    # parameters = {
+    #               'learning_rate' : {'values':[0.003] },
+    #               "n_inducing_points": {'values': [10] }
+    #             }
 
-    sweep_config['parameters'] = parameters
+    sweep_config['parameters'] = p
     ### Step 2: Initialize the Sweep
-    sweep_id = wandb.sweep( sweep=sweep_config,  project="CIFAR_Inducing_points")
+    sweep_id = wandb.sweep(sweep=sweep_config,  project="CIFAR_Inducing_points")
     ###Step 4: Activate sweep agents
-    wandb.agent( sweep_id, function=partial(run_main, args=args ) , count=1)
+    wandb.agent( sweep_id, function=partial(run_main, args=args) , count=8)

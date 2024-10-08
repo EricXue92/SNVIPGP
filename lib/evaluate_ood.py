@@ -73,14 +73,18 @@ def loop_over_dataloader(model, likelihood, dataloader):
             accuracies.append(accuracy.cpu().numpy())
             scores.append(uncertainty.cpu().numpy())
 
+            # # Clear GPU memory after processing each batch
+            # del data, target, output, uncertainty, pred, accuracy
+            # # GPU memory freed
+            # torch.cuda.empty_cache()
+            # # if i % 5 == 0:
+            # # release unused memory
+            # gc.collect()
+
     # Concatenate results on CPU
     scores = np.concatenate(scores)
     accuracies = np.concatenate(accuracies)
 
-    # Clear GPU memory after processing each batch
-    del data, target, output, uncertainty, pred, accuracy
-    torch.cuda.empty_cache()
-    gc.collect()
     return scores, accuracies
 
 def get_ood_metrics(in_dataset, out_dataset, model, likelihood=None):  # , root="./"

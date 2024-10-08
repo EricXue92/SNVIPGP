@@ -4,7 +4,7 @@
     <content url="file://$MODULE_DIR$">
       <sourceFolder url="file://$MODULE_DIR$" isTestSource="false" />
     </content>
-    <orderEntry type="jdk" jdkName="xuelong-torch (2)" jdkType="Python SDK" />
+    <orderEntry type="jdk" jdkName="Remote Python 3.12.2 (sftp://xuelong@158.132.205.96:6666/home/xuelong/.conda/envs/xuelong-torch/bin/python)" jdkType="Python SDK" />
     <orderEntry type="sourceFolder" forTests="false" />
   </component>
   <component name="PyDocumentationSettings">
