@@ -9,7 +9,7 @@ class FCResNet(nn.Module):
         features,
         depth,
         spectral_normalization,
-        coeff = 0.95,
+        coeff=0.95,
         n_power_iterations=1,
         dropout_rate=0.01,
         num_outputs=None,

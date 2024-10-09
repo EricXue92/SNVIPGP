@@ -1,3 +1,4 @@
+import os
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -8,7 +9,6 @@ from sngp_wrapper.covert_utils import convert_to_sn_my, replace_layer_with_gauss
 from torch.utils.data import ConcatDataset, DataLoader, Dataset
 import gc
 
-import os
 NUM_WORKERS = os.cpu_count()
 
 def prepare_ood_datasets(true_dataset, ood_dataset):
@@ -20,7 +20,7 @@ def prepare_ood_datasets(true_dataset, ood_dataset):
     concat_datasets = ConcatDataset(datasets)
     dataloader = DataLoader(
         concat_datasets, batch_size=64, shuffle=False, num_workers=NUM_WORKERS, pin_memory=True
-    ) #
+    )
     return dataloader, anomaly_targets
 
 # GP Uncertainty = entropy （ -output * log(output) ）
@@ -73,13 +73,13 @@ def loop_over_dataloader(model, likelihood, dataloader):
             accuracies.append(accuracy.cpu().numpy())
             scores.append(uncertainty.cpu().numpy())
 
-            # # Clear GPU memory after processing each batch
-            # del data, target, output, uncertainty, pred, accuracy
-            # # GPU memory freed
-            # torch.cuda.empty_cache()
-            # # if i % 5 == 0:
-            # # release unused memory
-            # gc.collect()
+    # # Clear GPU memory after processing each batch
+    del data, target, output, uncertainty, pred, accuracy
+    # GPU memory freed
+    torch.cuda.empty_cache()
+    # if i % 5 == 0:
+    # release unused memory
+    gc.collect()
 
     # Concatenate results on CPU
     scores = np.concatenate(scores)

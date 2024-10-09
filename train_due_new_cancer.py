@@ -1,5 +1,8 @@
 import os
-os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
+# os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
+
+
+# os.environ["CUDA_VISIBLE_DEVICES"]="1"
 
 import random
 import math
@@ -26,11 +29,13 @@ from lib.evaluate_cp import conformal_evaluate, ConformalTrainingLoss, Conformal
 from pathlib import Path
 from sngp_wrapper.covert_utils import convert_to_sn_my, replace_layer_with_gaussian
 
-# Environment Configuration
+from torch.utils.data import DataLoader
 # For context see: https://github.com/pytorch/pytorch/issues/47908
+NUM_WORKERS = os.cpu_count()
 
 import wandb
 from functools import partial
+
 # https://datascience.stackexchange.com/questions/31113/validation-showing-huge-fluctuations-what-could-be-the-cause
 
 def set_saving_file(hparams):
@@ -44,19 +49,18 @@ def set_saving_file(hparams):
 
 def main(hparams):
     # setting the wandb config
-    #hparams.n_inducing_points = wandb.config.n_inducing_points
+    hparams.n_inducing_points = wandb.config.n_inducing_points
     hparams.learning_rate = wandb.config.learning_rate
     hparams.dropout_rate = wandb.config.dropout_rate
 
     results_dir = set_saving_file(hparams)
-    writer = SummaryWriter(log_dir = str(results_dir))
+    writer = SummaryWriter(log_dir=str(results_dir))
     set_seed(hparams.seed)
 
     # Data Preparation
     ds = get_dataset(hparams.dataset)
     input_size, num_classes, train_dataset, val_dataset, test_dataset = ds
 
-    
     if hparams.n_inducing_points is None:
         hparams.n_inducing_points = num_classes
 
@@ -69,9 +73,9 @@ def main(hparams):
         input_size,
         hparams.spectral_conv,
         hparams.spectral_bn,
-        dropout_rate = hparams.dropout_rate,
-        coeff = hparams.coeff,
-        n_power_iterations = hparams.n_power_iterations,
+        dropout_rate=hparams.dropout_rate,
+        coeff=hparams.coeff,
+        n_power_iterations=hparams.n_power_iterations,
     )
         
     if hparams.sngp:
@@ -79,10 +83,10 @@ def main(hparams):
             input_size,
             hparams.spectral_conv,
             hparams.spectral_bn,
-            dropout_rate = hparams.dropout_rate,
-            coeff = hparams.coeff,
-            n_power_iterations = hparams.n_power_iterations,
-            num_classes = hparams.number_of_class,
+            dropout_rate=hparams.dropout_rate,
+            coeff=hparams.coeff,
+            n_power_iterations=hparams.n_power_iterations,
+            num_classes=hparams.number_of_class,
         )
         # spec_norm_replace_list = ["Linear", "Conv2D"]
         # spec_norm_bound = 9.
@@ -90,7 +94,7 @@ def main(hparams):
             'num_inducing': 2048,
             'gp_scale': 1.0,
             'gp_bias': 0.,
-            'gp_kernel_type': 'linear', #  gaussian
+            'gp_kernel_type': 'gaussian', #  linear
             'gp_input_normalization': True,
             'gp_cov_discount_factor': -1,
             'gp_cov_ridge_penalty': 1.,
@@ -131,7 +135,7 @@ def main(hparams):
         model = dkl.DKL(feature_extractor, gp)
         likelihood = SoftmaxLikelihood(num_classes=num_classes, mixing_weights=False)
         likelihood = likelihood.cuda()
-        elbo_fn = VariationalELBO(likelihood, gp, num_data = len(train_dataset))
+        elbo_fn = VariationalELBO(likelihood, gp, num_data=len(train_dataset))
         loss_fn = lambda x, y: -elbo_fn(x, y)
         
     model = model.cuda()
@@ -184,7 +188,7 @@ def main(hparams):
         
         if hparams.conformal_training and not hparams.sngp:
             ### Conformal training for inducing point GP
-            CP_size_fn = ConformalTrainingLoss(alpha = hparams.alpha, beta=hparams.beta, temperature = 1, sngp_flag = False)
+            CP_size_fn = ConformalTrainingLoss(alpha=hparams.alpha, beta=hparams.beta, temperature=1, sngp_flag=False)
             loss_cn = loss_fn(y_pred, y)
             y_pred_temp = y_pred.to_data_independent_dist()
             y_pred_temp = likelihood(y_pred_temp).probs.mean(0)
@@ -198,7 +202,7 @@ def main(hparams):
             
         loss.backward()
         ########## 
-        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0) # Clip gradients
+        #torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0) # Clip gradients
         optimizer.step()
         return y_pred, y, loss.item()
 
@@ -233,13 +237,13 @@ def main(hparams):
     trainer = Engine(step)
     evaluator = Engine(eval_step)
 
-    metric = Average(output_transform = training_loss)
+    metric = Average(output_transform=training_loss)
     metric.attach(trainer, "loss")
 
-    metric = Accuracy(output_transform = training_accuracy)
+    metric = Accuracy(output_transform=training_accuracy)
     metric.attach(trainer, "accuracy")
 
-    metric = Accuracy(output_transform = output_transform)
+    metric = Accuracy(output_transform=output_transform)
     metric.attach(evaluator, "accuracy")
 
     if hparams.sngp:
@@ -249,37 +253,32 @@ def main(hparams):
         metric = Loss(lambda y_pred, y: -likelihood.expected_log_prob(y, y_pred).mean() )
         metric.attach(evaluator, "loss")
 
-    kwargs = {"num_workers": 4, "pin_memory": True}
-    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size = hparams.batch_size, 
-                                               shuffle = True,  **kwargs) # drop_last = True,
-    val_loader = torch.utils.data.DataLoader(val_dataset, batch_size = hparams.batch_size, 
-                                             shuffle = False, **kwargs)
-    test_loader = torch.utils.data.DataLoader( test_dataset, batch_size= hparams.batch_size,  ##
-                                              shuffle = False, **kwargs )
+    kwargs = {"num_workers": NUM_WORKERS, "pin_memory": True}
+    train_loader = DataLoader(train_dataset, batch_size=hparams.batch_size,
+                                               shuffle=True,  **kwargs) # drop_last = True,
+    val_loader = DataLoader(val_dataset, batch_size=hparams.batch_size,
+                                             shuffle=False, **kwargs)
+    test_loader = DataLoader( test_dataset, batch_size=hparams.batch_size,  ##
+                                              shuffle=False, **kwargs )
     if hparams.sngp:
         @trainer.on(Events.EPOCH_STARTED)
         def reset_precision_matrix(trainer):
             model.linear.reset_covariance_matrix()
             
-    inefficiency_metric = ConformalInefficiency(alpha = hparams.alpha)
+    inefficiency_metric = ConformalInefficiency(alpha=hparams.alpha)
     #inefficiency = inefficiency_metric.compute().item()
     inefficiency = inefficiency_metric.compute()
 
     ##### Create EarlyStropping handler 
     def score_function(engine):
         val_loss = engine.state.metrics['loss']
-        return -val_loss  
-    early_stopping_handler = EarlyStopping(
-            patience = 20,  # Stop after 10 epochs without improvement
-            score_function = score_function,
-            trainer = trainer  
-    )
+        return -val_loss
 
-    #### Add an event handler for logging when early stopping is triggered
-    @trainer.on(Events.EPOCH_COMPLETED)
-    def log_early_stopping(engine):
-        if early_stopping_handler.should_early_stop:
-            print(f"Early stopping triggered at epoch {engine.state.epoch}.")
+    early_stopping_handler = EarlyStopping(
+            patience=20,  # Stop after 10 epochs without improvement
+            score_function=score_function,
+            trainer=trainer
+    )
 
     evaluator.add_event_handler(Events.COMPLETED, early_stopping_handler)
 
@@ -310,11 +309,11 @@ def main(hparams):
         # writer.add_scalar("Train/Loss", train_loss, trainer.state.epoch)
         # writer.add_scalar("Train/Accuracy", train_acc, trainer.state.epoch)
 
-        _, auroc, aupr = get_ood_metrics(hparams.dataset, "Alzheimer", model, likelihood)
+        _, auroc, aupr = get_ood_metrics(hparams.dataset, "Brain_tumors", model, likelihood)
         
         plot_auroc.append(auroc)
         plot_aupr.append(aupr)
-        
+
         print(f"OoD Metrics - AUROC: {auroc}, AUPR: {aupr}")
         
         # if trainer.state.epoch > 10 and trainer.state.epoch % 5 == 0:
@@ -341,8 +340,8 @@ def main(hparams):
         val_state = evaluator.run(val_loader)
         
         # After evaluation, concatenate all the accumulated outputs
-        cal_smx = torch.cat(all_cal_smx, dim = 0)
-        cal_labels = torch.cat(all_cal_labels, dim = 0)
+        cal_smx = torch.cat(all_cal_smx, dim=0)
+        cal_labels = torch.cat(all_cal_labels, dim=0)
         
         # print("cal_smx", cal_smx.shape, "cal_labels", cal_labels.shape)
         
@@ -471,21 +470,21 @@ def main(hparams):
         inefficiency = inefficiency_metric.compute().item()
 
         _, auroc, aupr = get_ood_metrics(
-                hparams.dataset, "Alzheimer", ood_model, ood_likelihood
+                hparams.dataset, "Brain_tumors", ood_model, ood_likelihood
             ) 
             
         print(f"Final Test Accuracy: {test_accuracy:.4f}, Final Test Loss: {test_loss:.4f}", 
                 f"Test_state Inefficiency: {inefficiency:.4f}", f"auroc {auroc} ", f"aupr {aupr} ")
             
-        results_to_save["auroc_ood_Alzheimer"] = auroc
-        results_to_save["aupr_ood_Alzheimer"] = aupr
+        results_to_save["auroc_ood_Brain_tumors"] = auroc
+        results_to_save["aupr_ood_Brain_tumors"] = aupr
         results_to_save['test_accuracy'] = test_accuracy
         results_to_save['test_loss'] = test_loss
         results_to_save['Test_inefficiency'] = inefficiency
 
         if hparams.sngp:
-            coverage_mean, ineff_list = conformal_evaluate(model, likelihood = None, dataset = hparams.dataset, 
-                                                        adaptive_flag = hparams.adaptive_conformal, alpha = hparams.alpha)
+            coverage_mean, ineff_list = conformal_evaluate(model, likelihood=None, dataset=hparams.dataset,
+                                                        adaptive_flag=hparams.adaptive_conformal, alpha=hparams.alpha)
             results_to_save["coverage_mean_sngp"] = str(coverage_mean)
             results_to_save["ineff_list_sngp"] = str(ineff_list)
 
@@ -494,8 +493,8 @@ def main(hparams):
             (results_dir / "results_sngp.json").write_text(results_json)
 
         else:
-            coverage_mean, ineff_list = conformal_evaluate(model, likelihood, dataset = hparams.dataset, 
-                                                        adaptive_flag = hparams.adaptive_conformal, alpha = hparams.alpha )
+            coverage_mean, ineff_list = conformal_evaluate(model, likelihood, dataset=hparams.dataset,
+                                                        adaptive_flag=hparams.adaptive_conformal, alpha=hparams.alpha )
             results_to_save["coverage_mean_gp"] = str(coverage_mean)
             results_to_save["ineff_list_gp"] = str(ineff_list)
 
@@ -513,7 +512,7 @@ def main(hparams):
     # Adding a progress bar
     ProgressBar(persist=True).attach(trainer)
     # Start training
-    trainer.run(train_loader, max_epochs = hparams.epochs)
+    trainer.run(train_loader, max_epochs=hparams.epochs)
     scheduler.step()
     writer.close()
     # plot_training_history(plot_train_loss, plot_val_loss, plot_train_acc, plot_val_acc)
@@ -522,28 +521,27 @@ def main(hparams):
 # Define a function to parse arguments
 def parse_arguments():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--learning_rate", type = float, default = 0.1, help = "Learning rate") # sngp = 0.05
-    parser.add_argument("--epochs", type = int, default = 200)
-    parser.add_argument("--batch_size", type=int, default = 64, help= "Batch size to use for training")
-    parser.add_argument("--number_of_class", type = int, default = 4)
-    parser.add_argument("--alpha", type= float, default= 0.05, help="Conformal Rate" )
-    parser.add_argument("--dataset", default="Brain_tumors", choices=["Brain_tumors", "Alzheimer",'CIFAR10', 'CIFAR100', "SVHN"])
-    parser.add_argument("--n_inducing_points", type=int, default= 8, help="Number of inducing points" )
-    parser.add_argument("--beta", type=int, default= 0.1, help="Weight for conformal training loss")
-    #action="store_true" -> false,
+    parser.add_argument("--learning_rate", type = float, default=0.1, help="Learning rate") # sngp = 0.05
+    parser.add_argument("--epochs", type=int, default=50)
+    parser.add_argument("--batch_size", type=int, default=64, help="Batch size to use for training")
+    parser.add_argument("--number_of_class", type=int, default =4)
+    parser.add_argument("--alpha", type=float, default=0.05, help="Conformal Rate" )
+    parser.add_argument("--dataset", default="Alzheimer", choices=["Brain_tumors", "Alzheimer",'CIFAR10', 'CIFAR100', "SVHN"])
+    parser.add_argument("--n_inducing_points", type=int, default=8, help="Number of inducing points" )
+    parser.add_argument("--beta", type=int, default=0.1, help="Weight for conformal training loss")
     parser.add_argument("--sngp", action="store_true", help="Use SNGP (RFF and Laplace) instead of a DUE (sparse GP)")
-    parser.add_argument("--conformal_training", action="store_true", help= " conformal training or not" )
-    parser.add_argument("--force_directory", default = "temp")
+    parser.add_argument("--conformal_training", action="store_true", help="conformal training or not" )
+    parser.add_argument("--force_directory", default="temp")
     parser.add_argument("--weight_decay", type=float, default=1e-3, help="Weight decay") # 5e-4
-    parser.add_argument("--dropout_rate", type=float, default = 0.3, help="Dropout rate")
+    parser.add_argument("--dropout_rate", type=float, default =0.3, help="Dropout rate")
     parser.add_argument("--kernel", default="RBF", choices=["RBF", "RQ", "Matern12", "Matern32", "Matern52"],help="Pick a kernel",)
     parser.add_argument("--no_spectral_conv", action="store_false",  dest="spectral_conv", help="Don't use spectral normalization on the convolutions",)
     parser.add_argument( "--adaptive_conformal", action="store_true", help="adaptive conformal")
     parser.add_argument("--no_spectral_bn", action="store_false", dest="spectral_bn", help="Don't use spectral normalization on the batch normalization layers",)
-    parser.add_argument("--seed", type=int, default = 23, help = "Seed to use for training")
-    parser.add_argument("--coeff", type=float, default = 3, help = "Spectral normalization coefficient")
-    parser.add_argument("--n_power_iterations", default=1, type=int, help = "Number of power iterations")
-    parser.add_argument("--output_dir", default="./default", type=str, help = "Specify output directory")
+    parser.add_argument("--seed", type=int, default=23, help="Seed to use for training")
+    parser.add_argument("--coeff", type=float, default=3., help="Spectral normalization coefficient")
+    parser.add_argument("--n_power_iterations", default=1, type=int, help="Number of power iterations")
+    parser.add_argument("--output_dir", default="./default", type=str, help="Specify output directory")
     args = parser.parse_args()
     return args 
     
@@ -572,6 +570,7 @@ if __name__ == "__main__":
     #### Run without wandb
     # run_main(args)
 
+
     wandb.login()
     # Step 1: Define a sweep
     sweep_config = {'method': 'grid'}
@@ -580,21 +579,21 @@ if __name__ == "__main__":
     sweep_config['metric'] = metric
 
     ### sngp
-    parameters = {'dropout_rate': {'values': [0.3, 0.4, 0.5]},
+    p = {'dropout_rate': {'values': [0.3, 0.4, 0.5]},
                   'learning_rate': {'values': [0.01, 0.05, 0.1]},
                  }
 
 
-    ### Inducing Points
-    # parameters = {'dropout_rate': {'values': [0.3, 0.4, 0.5] },
-    #               'learning_rate' : {'values':[0.01, 0.05, 0.1] },
-    #               "n_inducing_points" : {'values':[8, 16, 20, 24]} }
+    ## Inducing Points
+    p = {'dropout_rate': {'values': [0.3, 0.4, 0.5] },
+                  'learning_rate' : {'values':[0.01, 0.05, 0.1] },
+                  "n_inducing_points" : {'values':[8, 16, 20, 24]} }
 
-    parameters.update({'epochs': {'value': 1}})
-    sweep_config['parameters'] = parameters
+
+    sweep_config['parameters'] = p
 
     ### Step 2: Initialize the Sweep
-    sweep_id = wandb.sweep(sweep = sweep_config, project = "SNGP")
+    sweep_id = wandb.sweep(sweep=sweep_config, project="SNGP-NEW-22-2")
 
     ###Step 4: Activate sweep agents
-    wandb.agent(sweep_id, function = partial(run_main, args = args ) , count = 9)
+    wandb.agent(sweep_id, function=partial(run_main, args=args) , count=1)

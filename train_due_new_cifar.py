@@ -1,6 +1,8 @@
 import os
 os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
 
+
+
 # export CUDA_VISIBLE_DEVICES=1
 # python my_cuda_app.py
 
@@ -50,7 +52,7 @@ def main(hparams):
     # setting the wandb config
     hparams.n_inducing_points = wandb.config.n_inducing_points
     hparams.learning_rate = wandb.config.learning_rate
-    # hparams.dropout_rate = wandb.config.dropout_rate
+    hparams.dropout_rate = wandb.config.dropout_rate
 
     results_dir = set_saving_file(hparams)
     # writer = SummaryWriter(log_dir = str(results_dir))
@@ -61,9 +63,9 @@ def main(hparams):
     input_size, num_classes, train_dataset, val_dataset, test_dataset = ds
 
     kwargs = {"num_workers": NUM_WORKERS, "pin_memory": True}
-    train_loader = DataLoader(train_dataset, batch_size=hparams.batch_size, shuffle=True, drop_last=True, **kwargs) #
-    val_loader = DataLoader(val_dataset, batch_size=hparams.batch_size, shuffle=False, drop_last=True,  **kwargs)
-    test_loader = DataLoader(test_dataset, batch_size=hparams.batch_size, shuffle=False, drop_last=True,  **kwargs)
+    train_loader = DataLoader(train_dataset, batch_size=hparams.batch_size, shuffle=True, **kwargs) #
+    val_loader = DataLoader(val_dataset, batch_size=hparams.batch_size, shuffle=False,   **kwargs)
+    test_loader = DataLoader(test_dataset, batch_size=hparams.batch_size, shuffle=False,  **kwargs)
 
     if hparams.n_inducing_points is None:
         hparams.n_inducing_points = num_classes
@@ -264,20 +266,12 @@ def main(hparams):
         return -val_loss
 
     early_stopping_handler = EarlyStopping(
-            patience= 2,  # Stop after 20 epochs without improvement
+            patience=20,  # Stop after 20 epochs without improvement
             score_function=score_function,
             trainer=trainer
     )
 
-    # Add an event handler for logging when early stopping is triggered
-    @trainer.on(Events.EPOCH_COMPLETED)
-    def log_early_stopping(engine):
-        if early_stopping_handler.should_early_stop:
-            print(f"Early stopping triggered at epoch {engine.state.epoch}.")
-
     evaluator.add_event_handler(Events.COMPLETED, early_stopping_handler)
-
-
 
     # Attach the handler that logs results after each epoch
 
@@ -513,7 +507,7 @@ def main(hparams):
 def parse_arguments():
     parser = argparse.ArgumentParser()
     parser.add_argument("--learning_rate", type=float, default=0.1, help="Learning rate") # sngp = 0.05
-    parser.add_argument("--epochs", type=int, default=100)
+    parser.add_argument("--epochs", type=int, default=200)
     parser.add_argument("--batch_size", type=int, default=64, help="Batch size to use for training")
     parser.add_argument("--number_of_class", type=int, default=10)
     parser.add_argument("--alpha", type=float, default=0.05, help="Conformal Rate" )
@@ -569,9 +563,10 @@ if __name__ == "__main__":
     #              }
 
     ### Inducing Points
-    p = {
-                  'learning_rate' : {'values':[0.003, 0.01, 0.05, 0.1] },
-                  "n_inducing_points" : {'values':[10, 20]} }
+    p = {  'dropout_rate': {'values': [0.3, 0.4, 0.5] },
+            "learning_rate" : {'values':[0.01, 0.05, 0.1] },
+            "n_inducing_points" : {'values':[10, 20]}
+            }
     # parameters = {
     #               'learning_rate' : {'values':[0.003] },
     #               "n_inducing_points": {'values': [10] }
@@ -581,4 +576,4 @@ if __name__ == "__main__":
     ### Step 2: Initialize the Sweep
     sweep_id = wandb.sweep(sweep=sweep_config,  project="CIFAR_Inducing_points")
     ###Step 4: Activate sweep agents
-    wandb.agent( sweep_id, function=partial(run_main, args=args) , count=8)
+    wandb.agent( sweep_id, function=partial(run_main, args=args) , count= 18)
