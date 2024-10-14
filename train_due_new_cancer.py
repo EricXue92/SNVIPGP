@@ -1,12 +1,7 @@
 import os
-# os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
+# Run on GPU 1
+os.environ["CUDA_VISIBLE_DEVICES"]="1"
 
-
-# os.environ["CUDA_VISIBLE_DEVICES"]="1"
-
-import random
-import math
-import numpy as np 
 import argparse
 import copy
 import json
@@ -16,12 +11,12 @@ from torch.utils.tensorboard import SummaryWriter
 from ignite.engine import Events, Engine
 from ignite.metrics import Accuracy, Average, Loss
 from ignite.contrib.handlers import ProgressBar
-from ignite.handlers import ModelCheckpoint, global_step_from_engine, EarlyStopping
+from ignite.handlers import EarlyStopping
 from gpytorch.mlls import VariationalELBO
 from gpytorch.likelihoods import SoftmaxLikelihood
 from due import dkl
 from due.wide_resnet import WideResNet
-from due.sngp import Laplace
+# from due.sngp import Laplace
 from lib.datasets import get_dataset
 from lib.evaluate_ood import get_ood_metrics
 from lib.utils import get_results_directory, Hyperparameters, set_seed, plot_training_history, plot_OOD
@@ -30,6 +25,8 @@ from pathlib import Path
 from sngp_wrapper.covert_utils import convert_to_sn_my, replace_layer_with_gaussian
 
 from torch.utils.data import DataLoader
+import csv
+
 # For context see: https://github.com/pytorch/pytorch/issues/47908
 NUM_WORKERS = os.cpu_count()
 
@@ -49,7 +46,7 @@ def set_saving_file(hparams):
 
 def main(hparams):
     # setting the wandb config
-    hparams.n_inducing_points = wandb.config.n_inducing_points
+    # hparams.n_inducing_points = wandb.config.n_inducing_points
     hparams.learning_rate = wandb.config.learning_rate
     hparams.dropout_rate = wandb.config.dropout_rate
 
@@ -146,6 +143,7 @@ def main(hparams):
 
     if not hparams.sngp:
         parameters.append( {"params": likelihood.parameters() } )
+
     optimizer = torch.optim.AdamW(
         # model.parameters(),
         parameters,
@@ -162,9 +160,13 @@ def main(hparams):
     milestones = [60, 120, 160]
     # milestones = [30, 40, 50]
     
-    scheduler = torch.optim.lr_scheduler.MultiStepLR(
-        optimizer, milestones=milestones, gamma=0.2
-    )
+    # scheduler = torch.optim.lr_scheduler.MultiStepLR(
+    #     optimizer, milestones=milestones, gamma=0.2
+    # )
+    training_steps = len(train_dataset) // hparams.batch_size * hparams.epochs
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=training_steps)
+
+    # scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=10)
 
     best_inefficiency = float('inf')
     best_auroc = float('-inf')
@@ -175,7 +177,6 @@ def main(hparams):
     plot_train_acc, plot_val_acc = [], []
     plot_train_loss, plot_val_loss = [], []
     plot_auroc, plot_aupr = [], []
-    
     # Training and Evaluation Logic
     def step(engine, batch):
         model.train()
@@ -201,8 +202,8 @@ def main(hparams):
             loss = loss_fn(y_pred, y)
             
         loss.backward()
-        ########## 
-        #torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0) # Clip gradients
+        ##########
+        # torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0) # Clip gradients
         optimizer.step()
         return y_pred, y, loss.item()
 
@@ -256,9 +257,9 @@ def main(hparams):
     kwargs = {"num_workers": NUM_WORKERS, "pin_memory": True}
     train_loader = DataLoader(train_dataset, batch_size=hparams.batch_size,
                                                shuffle=True,  **kwargs) # drop_last = True,
-    val_loader = DataLoader(val_dataset, batch_size=hparams.batch_size,
+    val_loader = DataLoader(val_dataset, batch_size=32,
                                              shuffle=False, **kwargs)
-    test_loader = DataLoader( test_dataset, batch_size=hparams.batch_size,  ##
+    test_loader = DataLoader( test_dataset, batch_size=32,  ##
                                               shuffle=False, **kwargs )
     if hparams.sngp:
         @trainer.on(Events.EPOCH_STARTED)
@@ -309,8 +310,8 @@ def main(hparams):
         # writer.add_scalar("Train/Loss", train_loss, trainer.state.epoch)
         # writer.add_scalar("Train/Accuracy", train_acc, trainer.state.epoch)
 
-        _, auroc, aupr = get_ood_metrics(hparams.dataset, "Brain_tumors", model, likelihood)
-        
+        _, auroc, aupr = get_ood_metrics(hparams.dataset, "Alzheimer", model, likelihood)
+
         plot_auroc.append(auroc)
         plot_aupr.append(aupr)
 
@@ -335,7 +336,6 @@ def main(hparams):
 
         # Attach the handler to the evaluator
         evaluator.add_event_handler(Events.ITERATION_COMPLETED, accumulate_outputs)
-
 
         val_state = evaluator.run(val_loader)
         
@@ -470,14 +470,14 @@ def main(hparams):
         inefficiency = inefficiency_metric.compute().item()
 
         _, auroc, aupr = get_ood_metrics(
-                hparams.dataset, "Brain_tumors", ood_model, ood_likelihood
+                hparams.dataset, "Alzheimer", ood_model, ood_likelihood
             ) 
             
         print(f"Final Test Accuracy: {test_accuracy:.4f}, Final Test Loss: {test_loss:.4f}", 
                 f"Test_state Inefficiency: {inefficiency:.4f}", f"auroc {auroc} ", f"aupr {aupr} ")
             
-        results_to_save["auroc_ood_Brain_tumors"] = auroc
-        results_to_save["aupr_ood_Brain_tumors"] = aupr
+        results_to_save["auroc_ood_Alzheimer"] = auroc
+        results_to_save["aupr_ood_Alzheimer"] = aupr
         results_to_save['test_accuracy'] = test_accuracy
         results_to_save['test_loss'] = test_loss
         results_to_save['Test_inefficiency'] = inefficiency
@@ -513,10 +513,14 @@ def main(hparams):
     ProgressBar(persist=True).attach(trainer)
     # Start training
     trainer.run(train_loader, max_epochs=hparams.epochs)
+
     scheduler.step()
     writer.close()
-    # plot_training_history(plot_train_loss, plot_val_loss, plot_train_acc, plot_val_acc)
-    # plot_OOD(plot_auroc, plot_aupr)
+    #
+    plot_training_history(plot_train_loss, plot_val_loss, plot_train_acc, plot_val_acc)
+    plot_OOD(plot_auroc, plot_aupr)
+
+    return results_to_save
 
 # Define a function to parse arguments
 def parse_arguments():
@@ -526,20 +530,20 @@ def parse_arguments():
     parser.add_argument("--batch_size", type=int, default=64, help="Batch size to use for training")
     parser.add_argument("--number_of_class", type=int, default =4)
     parser.add_argument("--alpha", type=float, default=0.05, help="Conformal Rate" )
-    parser.add_argument("--dataset", default="Alzheimer", choices=["Brain_tumors", "Alzheimer",'CIFAR10', 'CIFAR100', "SVHN"])
-    parser.add_argument("--n_inducing_points", type=int, default=8, help="Number of inducing points" )
+    parser.add_argument("--dataset", default="Brain_tumors", choices=["Brain_tumors", "Alzheimer",'CIFAR10', 'CIFAR100', "SVHN"])
+    parser.add_argument("--n_inducing_points", type=int, default=10, help="Number of inducing points" )
     parser.add_argument("--beta", type=int, default=0.1, help="Weight for conformal training loss")
-    parser.add_argument("--sngp", action="store_true", help="Use SNGP (RFF and Laplace) instead of a DUE (sparse GP)")
+    parser.add_argument("--sngp", action="store_false", help="Use SNGP (RFF and Laplace) instead of a DUE (sparse GP)")
     parser.add_argument("--conformal_training", action="store_true", help="conformal training or not" )
     parser.add_argument("--force_directory", default="temp")
-    parser.add_argument("--weight_decay", type=float, default=1e-3, help="Weight decay") # 5e-4
+    parser.add_argument("--weight_decay", type=float, default=1e-4, help="Weight decay") # 5e-4
     parser.add_argument("--dropout_rate", type=float, default =0.3, help="Dropout rate")
     parser.add_argument("--kernel", default="RBF", choices=["RBF", "RQ", "Matern12", "Matern32", "Matern52"],help="Pick a kernel",)
     parser.add_argument("--no_spectral_conv", action="store_false",  dest="spectral_conv", help="Don't use spectral normalization on the convolutions",)
     parser.add_argument( "--adaptive_conformal", action="store_true", help="adaptive conformal")
     parser.add_argument("--no_spectral_bn", action="store_false", dest="spectral_bn", help="Don't use spectral normalization on the batch normalization layers",)
     parser.add_argument("--seed", type=int, default=23, help="Seed to use for training")
-    parser.add_argument("--coeff", type=float, default=3., help="Spectral normalization coefficient")
+    parser.add_argument("--coeff", type=float, default=9., help="Spectral normalization coefficient")
     parser.add_argument("--n_power_iterations", default=1, type=int, help="Number of power iterations")
     parser.add_argument("--output_dir", default="./default", type=str, help="Specify output directory")
     args = parser.parse_args()
@@ -554,7 +558,18 @@ def run_main(args):
     end_event = torch.cuda.Event(enable_timing=True)
     start_event.record()
 
-    main(hparams)
+    results_to_save = main(hparams)
+
+    if hparams.sngp:
+        file_name = "SNGP.csv"
+    else:
+        file_name = "SNGPIP.csv"
+
+    with open(f'{file_name}', 'w') as csv_file:
+        writer = csv.writer(csv_file)
+        writer.writerow(["Metrics", "Value"])
+        for key, value in results_to_save.items():
+            writer.writerow([key, value])
 
     end_event.record()
     torch.cuda.synchronize()
@@ -570,7 +585,6 @@ if __name__ == "__main__":
     #### Run without wandb
     # run_main(args)
 
-
     wandb.login()
     # Step 1: Define a sweep
     sweep_config = {'method': 'grid'}
@@ -579,21 +593,21 @@ if __name__ == "__main__":
     sweep_config['metric'] = metric
 
     ### sngp
-    p = {'dropout_rate': {'values': [0.3, 0.4, 0.5]},
-                  'learning_rate': {'values': [0.01, 0.05, 0.1]},
+    p = {'dropout_rate': {'values': [0] },
+                  'learning_rate': {'values': [0.001]},
                  }
 
 
-    ## Inducing Points
-    p = {'dropout_rate': {'values': [0.3, 0.4, 0.5] },
-                  'learning_rate' : {'values':[0.01, 0.05, 0.1] },
-                  "n_inducing_points" : {'values':[8, 16, 20, 24]} }
+    # ## Inducing Points
+    # p = {'dropout_rate': {'values': [0.3, 0.4, 0.5] },
+    #               'learning_rate' : {'values':[0.05, 0.1] },
+    #               "n_inducing_points" : {'values':[8, 16, 20, 24]} }
 
 
     sweep_config['parameters'] = p
 
     ### Step 2: Initialize the Sweep
-    sweep_id = wandb.sweep(sweep=sweep_config, project="SNGP-NEW-22-2")
+    sweep_id = wandb.sweep(sweep=sweep_config, project="SNGP-10-14")
 
     ###Step 4: Activate sweep agents
     wandb.agent(sweep_id, function=partial(run_main, args=args) , count=1)

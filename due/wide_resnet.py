@@ -56,8 +56,8 @@ class WideResNet(nn.Module):
         input_size,
         spectral_conv,
         spectral_bn,
-        depth = 28, # 16, 28
-        widen_factor = 10, # 8, 10
+        depth = 16, # 16, 28
+        widen_factor = 8, # 8, 10
         num_classes=None,
         dropout_rate=0.3,
         coeff = 3.,

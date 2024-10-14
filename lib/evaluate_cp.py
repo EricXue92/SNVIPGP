@@ -131,6 +131,7 @@ def conformal_evaluate(model, likelihood, dataset, adaptive_flag, alpha=0.05):
         _, _, _, val_dataset, test_dataset = get_CIFAR100()
     else:
         print("Invalid dataset")
+        return None, None
 
     # batch_size= 128
     if isinstance(val_dataset, Dataset):
@@ -201,7 +202,7 @@ def conformal_evaluate(model, likelihood, dataset, adaptive_flag, alpha=0.05):
         # We do not care much about the accuracy here
         combined_accuracy = (
             (torch.argmax(combined_prediction_tensor, axis=1) == combined_prediction_label).float().mean())
-        print(f"Combined_accuracy : {combined_accuracy}")
+        print(f"Combined_accuracy : {combined_accuracy.item()}")
 
         repeated_times = 100
 
@@ -215,12 +216,8 @@ def conformal_evaluate(model, likelihood, dataset, adaptive_flag, alpha=0.05):
         alpha = 0.05
         for i in range(repeated_times):
             permutation_index = custom_permutation[i]
-            cal_smx, val_smx = combined_prediction_tensor[permutation_index][:cal_size], combined_prediction_tensor[
-                                                                                             permutation_index][
-                                                                                         cal_size:]
-            cal_labels, val_labels = combined_prediction_label[permutation_index][:cal_size], combined_prediction_label[
-                                                                                                  permutation_index][
-                                                                                              cal_size:]
+            cal_smx, val_smx = combined_prediction_tensor[permutation_index][:cal_size], combined_prediction_tensor[permutation_index][cal_size:]
+            cal_labels, val_labels = combined_prediction_label[permutation_index][:cal_size], combined_prediction_label[permutation_index][cal_size:]
             if adaptive_flag:
                 _, coverage, ineff = adaptive_tps(cal_smx, val_smx, cal_labels, val_labels, cal_size, 0.05)
             else:
@@ -232,6 +229,9 @@ def conformal_evaluate(model, likelihood, dataset, adaptive_flag, alpha=0.05):
         ineff_list = np.mean(ineff_list)
 
         print(f"coverage mean, {coverage_mean} ", f"ineff_list, {ineff_list}")
+
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
 
     return coverage_mean, ineff_list
 

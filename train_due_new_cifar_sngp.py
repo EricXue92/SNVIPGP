@@ -560,14 +560,17 @@ if __name__ == "__main__":
     #              }
 
     ### Inducing Points
-    parameters = { 'dropout_rate': {'values': [0.3, 0.4, 0.5] },
-                  'learning_rate' : {'values':[0.01, 0.05, 0.1] }  }
+    # parameters = { 'dropout_rate': {'values': [0.3, 0.4, 0.5] },
+    #               'learning_rate' : {'values':[0.01, 0.05, 0.1] }  }
 
-    parameters.update({'epochs': {'value': 1}})
+    parameters = { 'dropout_rate': {'values': [0.3] },
+                  'learning_rate' : {'values':[0.1] }  }
+
+
     sweep_config['parameters'] = parameters
 
     ### Step 2: Initialize the Sweep
-    sweep_id = wandb.sweep(sweep = sweep_config, project = "CIFAR_SNGP")
+    sweep_id = wandb.sweep(sweep = sweep_config, project = "CIFAR_SNGP_New")
 
     ###Step 4: Activate sweep agents
-    wandb.agent(sweep_id, function = partial(run_main, args = args ) , count = 9)
+    wandb.agent(sweep_id, function = partial(run_main, args = args ) , count = 2)

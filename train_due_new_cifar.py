@@ -1,10 +1,6 @@
 import os
-os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
 
-
-
-# export CUDA_VISIBLE_DEVICES=1
-# python my_cuda_app.py
+os.environ["CUDA_VISIBLE_DEVICES"]="0"
 
 import argparse
 import copy
@@ -519,13 +515,13 @@ def parse_arguments():
     parser.add_argument("--conformal_training", action="store_true", help="conformal training or not" )
     parser.add_argument("--force_directory", default ="temp")
     parser.add_argument("--weight_decay", type=float, default=1e-3, help="Weight decay") # 5e-4
-    parser.add_argument("--dropout_rate", type=float, default =0.3, help="Dropout rate")
+    parser.add_argument("--dropout_rate", type=float, default =0, help="Dropout rate")
     parser.add_argument("--kernel", default="RBF", choices=["RBF", "RQ", "Matern12", "Matern32", "Matern52"],help="Pick a kernel",)
     parser.add_argument("--no_spectral_conv", action="store_false",  dest="spectral_conv", help="Don't use spectral normalization on the convolutions",)
     parser.add_argument( "--adaptive_conformal", action="store_true", help="adaptive conformal")
     parser.add_argument("--no_spectral_bn", action="store_false", dest="spectral_bn", help="Don't use spectral normalization on the batch normalization layers",)
     parser.add_argument("--seed", type=int, default=23, help = "Seed to use for training")
-    parser.add_argument("--coeff", type=float, default=3., help = "Spectral normalization coefficient")
+    parser.add_argument("--coeff", type=float, default=9., help = "Spectral normalization coefficient")
     parser.add_argument("--n_power_iterations", default=1, type=int, help = "Number of power iterations")
     parser.add_argument("--output_dir", default="./default", type=str, help = "Specify output directory")
     args = parser.parse_args()
@@ -574,6 +570,6 @@ if __name__ == "__main__":
 
     sweep_config['parameters'] = p
     ### Step 2: Initialize the Sweep
-    sweep_id = wandb.sweep(sweep=sweep_config,  project="CIFAR_Inducing_points")
+    sweep_id = wandb.sweep(sweep=sweep_config,  project="CIFAR_Inducing_points_10")
     ###Step 4: Activate sweep agents
     wandb.agent( sweep_id, function=partial(run_main, args=args) , count= 18)

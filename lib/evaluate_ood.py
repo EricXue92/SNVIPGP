@@ -73,15 +73,15 @@ def loop_over_dataloader(model, likelihood, dataloader):
             accuracies.append(accuracy.cpu().numpy())
             scores.append(uncertainty.cpu().numpy())
 
-    # # Clear GPU memory after processing each batch
+    # # # Clear GPU memory after processing each batch
     del data, target, output, uncertainty, pred, accuracy
     # GPU memory freed
     torch.cuda.empty_cache()
     # if i % 5 == 0:
     # release unused memory
     gc.collect()
-
-    # Concatenate results on CPU
+    #
+    # # Concatenate results on CPU
     scores = np.concatenate(scores)
     accuracies = np.concatenate(accuracies)
 
@@ -107,7 +107,7 @@ def get_ood_metrics(in_dataset, out_dataset, model, likelihood=None):  # , root=
 def get_auroc_classification(data, model, likelihood=None):
     if isinstance(data, Dataset):
         dataloader = DataLoader(
-            data, batch_size= 64, shuffle=False, num_workers=NUM_WORKERS, pin_memory=True
+            data, batch_size=64, shuffle=False, num_workers=NUM_WORKERS, pin_memory=True
         ) #
     else:
         dataloader = data
