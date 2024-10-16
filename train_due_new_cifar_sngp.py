@@ -52,7 +52,6 @@ def main(hparams):
     ds = get_dataset(hparams.dataset)
     input_size, num_classes, train_dataset, val_dataset, test_dataset = ds
 
-    
     if hparams.n_inducing_points is None:
         hparams.n_inducing_points = num_classes
 
@@ -492,37 +491,37 @@ def main(hparams):
     # Adding a progress bar
     ProgressBar(persist=True).attach(trainer)
     # Start training
-    trainer.run(train_loader, max_epochs = hparams.epochs)
+    trainer.run(train_loader, max_epochs=hparams.epochs)
     scheduler.step()
     writer.close()
-    plot_training_history(plot_train_loss, plot_val_loss, plot_train_acc, plot_val_acc)
-    plot_OOD(plot_auroc, plot_aupr)
+    # plot_training_history(plot_train_loss, plot_val_loss, plot_train_acc, plot_val_acc)
+    # plot_OOD(plot_auroc, plot_aupr)
 
 # Define a function to parse arguments
 def parse_arguments():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--learning_rate", type = float, default = 0.1, help = "Learning rate") # sngp = 0.05
-    parser.add_argument("--epochs", type = int, default = 200)
-    parser.add_argument("--batch_size", type=int, default = 64, help= "Batch size to use for training")
-    parser.add_argument("--number_of_class", type = int, default = 10)
-    parser.add_argument("--alpha", type= float, default= 0.05, help="Conformal Rate" )
+    parser.add_argument("--learning_rate", type=float, default=0.1, help = "Learning rate") # sngp = 0.05
+    parser.add_argument("--epochs", type=int, default=200)
+    parser.add_argument("--batch_size", type=int, default=64, help="Batch size to use for training")
+    parser.add_argument("--number_of_class", type=int, default=10)
+    parser.add_argument("--alpha", type=float, default=0.05, help="Conformal Rate" )
     parser.add_argument("--dataset", default="CIFAR10", choices=["Brain_tumors", "Alzheimer", 'CIFAR100', "SVHN"])
     parser.add_argument("--n_inducing_points", type=int, default= 8, help="Number of inducing points" )
-    parser.add_argument("--beta", type=int, default= 0.1, help="Weight for conformal training loss")
+    parser.add_argument("--beta", type=int, default=0.1, help="Weight for conformal training loss")
     #action="store_true" -> false,
     parser.add_argument("--sngp", action="store_true", help="Use SNGP (RFF and Laplace) instead of a DUE (sparse GP)")
     parser.add_argument("--conformal_training", action="store_true", help= " conformal training or not" )
     parser.add_argument("--force_directory", default = "temp")
     parser.add_argument("--weight_decay", type=float, default=1e-3, help="Weight decay") # 5e-4
-    parser.add_argument("--dropout_rate", type=float, default = 0.3, help="Dropout rate")
+    parser.add_argument("--dropout_rate", type=float, default =0.3, help="Dropout rate")
     parser.add_argument("--kernel", default="RBF", choices=["RBF", "RQ", "Matern12", "Matern32", "Matern52"],help="Pick a kernel",)
     parser.add_argument("--no_spectral_conv", action="store_false",  dest="spectral_conv", help="Don't use spectral normalization on the convolutions",)
     parser.add_argument( "--adaptive_conformal", action="store_true", help="adaptive conformal")
     parser.add_argument("--no_spectral_bn", action="store_false", dest="spectral_bn", help="Don't use spectral normalization on the batch normalization layers",)
-    parser.add_argument("--seed", type=int, default = 23, help = "Seed to use for training")
-    parser.add_argument("--coeff", type=float, default = 3, help = "Spectral normalization coefficient")
-    parser.add_argument("--n_power_iterations", default=1, type=int, help = "Number of power iterations")
-    parser.add_argument("--output_dir", default="./default", type=str, help = "Specify output directory")
+    parser.add_argument("--seed", type=int, default=23, help="Seed to use for training")
+    parser.add_argument("--coeff", type=float, default=3, help ="Spectral normalization coefficient")
+    parser.add_argument("--n_power_iterations", default=1, type=int, help ="Number of power iterations")
+    parser.add_argument("--output_dir", default="./default", type=str, help="Specify output directory")
     args = parser.parse_args()
     return args 
     
@@ -563,14 +562,14 @@ if __name__ == "__main__":
     # parameters = { 'dropout_rate': {'values': [0.3, 0.4, 0.5] },
     #               'learning_rate' : {'values':[0.01, 0.05, 0.1] }  }
 
-    parameters = { 'dropout_rate': {'values': [0.3] },
-                  'learning_rate' : {'values':[0.1] }  }
+    parameters = { 'dropout_rate': {'values': [0.3, 0.4, 0.5] },
+                  'learning_rate' : {'values':[0.001, 0.005, 0.01] }  }
 
 
     sweep_config['parameters'] = parameters
 
     ### Step 2: Initialize the Sweep
-    sweep_id = wandb.sweep(sweep = sweep_config, project = "CIFAR_SNGP_New")
+    sweep_id = wandb.sweep(sweep = sweep_config, project = "CIFAR_SNGP_1015")
 
     ###Step 4: Activate sweep agents
-    wandb.agent(sweep_id, function = partial(run_main, args = args ) , count = 2)
+    wandb.agent(sweep_id, function = partial(run_main, args = args ) , count = 9)

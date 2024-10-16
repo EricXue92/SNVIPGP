@@ -127,7 +127,7 @@ def get_Brain_tumors():
     ])
 
     ### For get the training mean and std
-    ## data = datasets.ImageFolder(root=image_path, transform=transform)
+    # data = datasets.ImageFolder(root=image_path, transform=transform)
 
     data = datasets.ImageFolder(root=image_path)
     input_size = 64
@@ -157,6 +157,7 @@ def get_Brain_tumors():
 
 
 
+
 ## https://www.kaggle.com/datasets/uraninjo/augmented-alzheimer-mri-dataset
 # 3 * 208 * 176
 # 5120 640 640
@@ -167,9 +168,11 @@ def get_Alzheimer():
     #     transforms.Resize((64, 64)),  # Resize images to input size
     #     transforms.ToTensor(),  # Convert images to tensors
     # ])
+    # normalize = transforms.Normalize((0.2815, 0.2815, 0.2815),
+    #                                  (0.3206, 0.3206, 0.3206) )
 
-    normalize = transforms.Normalize((0.2815, 0.2815, 0.2815),
-                                     (0.3206, 0.3206, 0.3206) )
+    normalize = transforms.Normalize((0.2819, 0.2819, 0.2819),
+                                     (0.3210, 0.3210, 0.3210) )
 
     train_transform = transforms.Compose(
         [
@@ -180,30 +183,23 @@ def get_Alzheimer():
             transforms.ToTensor(),
             normalize
         ])
-
     val_test_transform = transforms.Compose([
         transforms.Resize([64,64]),
         transforms.ToTensor(),
         normalize
     ])
 
-    ## data = datasets.ImageFolder(root=image_path, transform=transform)
+    #data = datasets.ImageFolder(root=image_path, transform=transform)
     data = datasets.ImageFolder(root=image_path)
-
     input_size = 64
     num_classes = 4
-
     targets = [sample[1] for sample in data.imgs]
-
-
     train_indices, temp_indices, _, temp_labels = train_test_split(
         range(len(data)), targets, test_size=0.2, stratify=targets, random_state=42
     )
-
     val_indices, test_indices = train_test_split(
         temp_indices, test_size=0.5, stratify=temp_labels, random_state=42
     )
-
 
     train_dataset = TransformedDataset(Subset(data, train_indices), transform=train_transform)
     val_dataset = TransformedDataset(Subset(data, val_indices), transform=val_test_transform)
@@ -215,10 +211,10 @@ def get_Alzheimer():
     # std = torch.std(x, dim=(0,2,3))
     # print(f"mean : {mean}")
     # print(f"std : {std}")
+
     return input_size, num_classes, train_dataset, val_dataset, test_dataset
 
 
-# get_Brain_tumors()
 all_datasets = {
     "SVHN": get_SVHN,
     "CIFAR10": get_CIFAR10,

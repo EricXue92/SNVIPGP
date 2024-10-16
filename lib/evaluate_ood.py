@@ -73,7 +73,7 @@ def loop_over_dataloader(model, likelihood, dataloader):
             accuracies.append(accuracy.cpu().numpy())
             scores.append(uncertainty.cpu().numpy())
 
-    # # # Clear GPU memory after processing each batch
+    # # # # Clear GPU memory after processing each batch
     del data, target, output, uncertainty, pred, accuracy
     # GPU memory freed
     torch.cuda.empty_cache()

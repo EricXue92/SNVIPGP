@@ -32,13 +32,13 @@ class ConformalTrainingLoss(nn.Module):
 
         ### [ont] important notes 2: as we have relative small num of classes, therefore, consider remove the torch.log
         # size_loss = torch.log(torch.clamp(in_set_prob.sum(axis=1) - 1, min=0).mean(axis=0))
-        size_loss = torch.clamp(in_set_prob.sum(axis=1) - 1, min=0).mean(axis=0)
+        size_loss = torch.clamp(in_set_prob.sum(dim=1) - 1, min=0).mean(dim=0)
         size_loss = self.beta * size_loss
 
         if self.sngp_flag:
             fn_loss = F.cross_entropy(probabilities, y)
             total_loss = fn_loss + size_loss
-            print("total loss", (size_loss).item() + fn_loss.item(), "size loss", (size_loss).item(), "ce loss",
+            print("total loss", size_loss.item() + fn_loss.item(), "size loss", size_loss.item(), "ce loss",
                   fn_loss.item())
             return total_loss
         else:
@@ -53,6 +53,7 @@ class ConformalInefficiency(Metric):
         self.alpha = alpha
         super(ConformalInefficiency, self).__init__(output_transform=output_transform)
 
+
     def reset(self):
         self.eff = 0
 
@@ -63,6 +64,7 @@ class ConformalInefficiency(Metric):
         q_level = np.ceil((n + 1) * (1 - self.alpha)) / n
         qhat = torch.quantile(cal_scores, q_level, interpolation='midpoint')
         prediction_sets = val_smx >= (1 - qhat)
+
         self.eff = torch.sum(prediction_sets) / len(prediction_sets)
 
     def compute(self):
@@ -70,12 +72,14 @@ class ConformalInefficiency(Metric):
 
 
 def tps(cal_smx, val_smx, cal_labels, val_labels, n, alpha):
+
+
     # 1: get conformal scores
     cal_scores = 1 - cal_smx[torch.arange(n), cal_labels]
     # 2: get adjust quantile
     q_level = np.ceil((n + 1) * (1 - alpha)) / n
-    qhat = torch.quantile(cal_scores, q_level, interpolation='midpoint')  # 'higher'
-    prediction_sets = val_smx >= (1 - qhat)
+    q_hat = torch.quantile(cal_scores, q_level, interpolation='midpoint')  # 'higher'
+    prediction_sets = val_smx >= (1 - q_hat)
     # coverage
     coverage = prediction_sets[torch.arange(prediction_sets.shape[0]), val_labels].float().mean()
     # efficiency -- the size of the prediction set
@@ -85,15 +89,19 @@ def tps(cal_smx, val_smx, cal_labels, val_labels, n, alpha):
 
 def adaptive_tps(cal_smx, val_smx, cal_labels, val_labels, n, alpha):
     # Ensure inputs are NumPy arrays
-    cal_smx = np.array(cal_smx)
-    val_smx = np.array(val_smx)
+
+    cal_smx = cal_smx.cpu().numpy()
+    val_smx = val_smx.cpu().numpy()
+
     cal_pi = np.argsort(-cal_smx, axis=1)
     cal_srt = np.take_along_axis(cal_smx, cal_pi, axis=1).cumsum(axis=1)
     cal_scores = np.take_along_axis(cal_srt, cal_pi.argsort(axis=1), axis=1)[range(n), cal_labels]
-    qhat = np.quantile(cal_scores, np.ceil((n + 1) * (1 - alpha)) / n, interpolation="midpoint" )
+    q_level = np.ceil( (n + 1) * (1 - alpha) ) / n
+
+    q_hat = np.quantile(cal_scores, q_level, method="midpoint" )
     val_pi = np.argsort(-val_smx, axis=1)
     val_srt = np.take_along_axis(val_smx, val_pi, axis=1).cumsum(axis=1)
-    prediction_sets = np.take_along_axis(val_srt <= qhat, val_pi.argsort(axis=1), axis=1)
+    prediction_sets = np.take_along_axis(val_srt <= q_hat, val_pi.argsort(axis=1), axis=1)
     coverage = prediction_sets[np.arange(prediction_sets.shape[0]), val_labels].mean()
     efficiency = np.sum(prediction_sets) / len(prediction_sets)
     return prediction_sets, coverage, efficiency
