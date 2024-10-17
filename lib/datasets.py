@@ -63,7 +63,7 @@ def get_CIFAR100():
         ]
     )
     train_dataset = datasets.CIFAR100(
-        "data/CIFAR100", train=True, transform=train_transform, download=False
+        "data/CIFAR100", train=True, transform=train_transform, download=True
     )
     train_size = int(0.8 * len(train_dataset))
     val_size = len(train_dataset) - train_size
@@ -71,7 +71,7 @@ def get_CIFAR100():
 
     test_transform = transforms.Compose([transforms.ToTensor(), normalize])
     test_dataset = datasets.CIFAR100(
-        "data/CIFAR100", train=False, transform=test_transform, download=False
+        "data/CIFAR100", train=False, transform=test_transform, download=True
     )
 
     return input_size, num_classes, train_dataset, val_dataset, test_dataset
