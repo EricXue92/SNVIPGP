@@ -87,7 +87,7 @@ def loop_over_dataloader(model, likelihood, dataloader):
 
     return scores, accuracies
 
-def get_ood_metrics(in_dataset, out_dataset, model, likelihood=None):  # , root="./"
+def get_ood_metrics(in_dataset: object, out_dataset: object, model: object, likelihood: object = None) -> object:  # , root="./"
     # return input_size, num_classes, train_dataset, val_dataset, test_dataset
     _, _, _, _, in_dataset = get_dataset(in_dataset)  # , root=root
     _, _, _, _, out_dataset = get_dataset(out_dataset)  # , root=root

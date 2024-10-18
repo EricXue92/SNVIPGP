@@ -6,6 +6,28 @@ import torch
 import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
+import pandas as pd
+
+def calculate_and_save_statistics(file_name):
+    df = pd.read_csv(file_name)
+
+    # Calculate the mean and variance for each column
+    mean_values = round(df.mean(), 4)
+    variance_values = round(df.var(), 4)
+
+    # Print the results
+    print("Mean of each column:")
+    print(mean_values)
+
+    print("\nVariance of each column:")
+    print(variance_values)
+
+    # Optional: Save the mean and variance to another CSV file
+    mean_variance_file = file_name + "_output.csv"
+    mean_variance_df = pd.DataFrame({'Mean': mean_values, 'Variance': variance_values})
+    mean_variance_df.to_csv(mean_variance_file)
+
+    print(f"\nMean and variance saved to {mean_variance_file}")
 
 # 设置np.random.seed(seed) 和 torch.manual_seed(seed), 重复实验
 def set_seed(seed):

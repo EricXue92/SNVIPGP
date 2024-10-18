@@ -558,7 +558,7 @@ if __name__ == "__main__":
 
     ### sngp
     parameters = {'dropout_rate': {'values': [0.3]},
-                  'learning_rate': {'values': [0.001]},
+                  'learning_rate': {'values': [0.001, 0.005, 0.01, 0.05]},
                  }
 
     ### IPGP
@@ -573,4 +573,4 @@ if __name__ == "__main__":
     sweep_id = wandb.sweep(sweep=sweep_config, project="CIFAR_SNGP_1016_New")
 
     ###Step 4: Activate sweep agents
-    wandb.agent(sweep_id, function=partial(run_main, args=args) , count=1)
+    wandb.agent(sweep_id, function=partial(run_main, args=args) , count=4)

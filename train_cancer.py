@@ -19,13 +19,14 @@ from due.wide_resnet import WideResNet
 # from due.sngp import Laplace
 from lib.datasets import get_dataset
 from lib.evaluate_ood import get_ood_metrics
-from lib.utils import get_results_directory, Hyperparameters, set_seed, plot_training_history, plot_OOD
+from lib.utils import get_results_directory, Hyperparameters, set_seed, plot_training_history, plot_OOD, calculate_and_save_statistics
 from lib.evaluate_cp import conformal_evaluate, ConformalTrainingLoss, ConformalInefficiency
 from pathlib import Path
 from sngp_wrapper.covert_utils import convert_to_sn_my, replace_layer_with_gaussian
 
 from torch.utils.data import DataLoader
 import csv
+import pandas as pd
 
 # For context see: https://github.com/pytorch/pytorch/issues/47908
 NUM_WORKERS = os.cpu_count()
@@ -47,14 +48,17 @@ def set_saving_file(hparams):
 def main(hparams):
     # setting the wandb config
     #hparams.n_inducing_points = wandb.config.n_inducing_points
-    hparams.learning_rate = wandb.config.learning_rate
-    hparams.dropout_rate = wandb.config.dropout_rate
+    # hparams.learning_rate = wandb.config.learning_rate
+    # hparams.dropout_rate = wandb.config.dropout_rate
     # hparams.temperature = wandb.config.temperature
     # hparams.beta = wandb.config.beta
 
     results_dir = set_saving_file(hparams)
+    print(f"save to results_dir {results_dir}")
+
     writer = SummaryWriter(log_dir=str(results_dir))
-    set_seed(hparams.seed)
+
+    #set_seed(hparams.seed)
 
     # Data Preparation
     ds = get_dataset(hparams.dataset)
@@ -102,7 +106,6 @@ def main(hparams):
             'gp_use_custom_random_features': True,
             'gp_random_feature_type': 'orf',
             'gp_output_imagenet_initializer': True,
-            ####### 
             'num_classes': 4,  # 
         }
         
@@ -129,7 +132,6 @@ def main(hparams):
             initial_inducing_points=initial_inducing_points,
             kernel=hparams.kernel,
         )
-        
         # Model for inducing points 
         model = dkl.DKL(feature_extractor, gp)
         likelihood = SoftmaxLikelihood(num_classes=num_classes, mixing_weights=False)
@@ -144,7 +146,7 @@ def main(hparams):
     ###
 
     if not hparams.sngp:
-        parameters.append( {"params": likelihood.parameters() } )
+        parameters.append( {"params": likelihood.parameters()} )
 
     optimizer = torch.optim.AdamW(
         # model.parameters(),
@@ -167,8 +169,6 @@ def main(hparams):
     # )
     training_steps = len(train_dataset) // hparams.batch_size * hparams.epochs
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=training_steps)
-
-    # scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=10)
 
     best_inefficiency = float('inf')
     best_auroc = float('-inf')
@@ -204,9 +204,8 @@ def main(hparams):
             loss = loss_fn(y_pred, y)
             
         loss.backward()
-        ##########
-        # torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0) # Clip gradients
-        optimizer.step()
+        optimizer.step() # Update weights
+        scheduler.step() # Adjust learning rate
         return y_pred, y, loss.item()
 
     def eval_step(engine, batch):
@@ -296,28 +295,24 @@ def main(hparams):
         # plot_train_loss.append(train_loss)
         # plot_train_acc.append(train_acc)
         
-        result = f"Train - Epoch: {trainer.state.epoch} "
+        result = f"Train - Epoch: {trainer.state.epoch} | "
         if hparams.sngp:
-            result += f"Loss: {train_loss:.2f} "
-            result += f"Accuracy: {train_acc :.2f} "
+            result += f"Loss: {train_loss:.2f} | Accuracy: {train_acc:.2f} "
         else:
-            result += f"ELBO: {train_loss:.2f} "
-            result += f"Accuracy: {train_acc :.2f} "
-            
-        print(f"Training...{result}")
+            result += f"ELBO: {train_loss:.2f} | Accuracy: {train_acc:.2f} "
+        print(result)
         
         # Log the training metrics to W&B
-        wandb.log({"Train/Loss": train_loss, "Train/Accuracy": train_acc, "Epoch": trainer.state.epoch})
+        # wandb.log({"Train/Loss": train_loss, "Train/Accuracy": train_acc, "Epoch": trainer.state.epoch})
         
         # writer.add_scalar("Train/Loss", train_loss, trainer.state.epoch)
         # writer.add_scalar("Train/Accuracy", train_acc, trainer.state.epoch)
-
-        _, auroc, aupr = get_ood_metrics(hparams.dataset, "Alzheimer", model, likelihood)
+        if trainer.state.epoch % 5 == 0 and trainer.state.max_epochs > 10:
+            _, auroc, aupr = get_ood_metrics(hparams.dataset, "Alzheimer", model, likelihood)
+            print(f"OoD Metrics - AUROC: {auroc :.4f} | AUPR: {aupr :.4f}")
 
         # plot_auroc.append(auroc)
         # plot_aupr.append(aupr)
-
-        print(f"OoD Metrics - AUROC: {auroc}, AUPR: {aupr}")
         
         # if trainer.state.epoch > 10 and trainer.state.epoch % 5 == 0:
             # writer.add_scalar("OoD/auroc", auroc, trainer.state.epoch)
@@ -361,11 +356,11 @@ def main(hparams):
         inefficiency = inefficiency_metric.compute().item()
         
         # Log validation metrics to W&B
-        wandb.log({"Val_Loss": val_loss, "Val_Accuracy": val_acc,
-               "Epoch": trainer.state.epoch,  "val_inefficiency":inefficiency})
+        #wandb.log({"Val_Loss": val_loss, "Val_Accuracy": val_acc,
+        #       "Epoch": trainer.state.epoch,  "val_inefficiency":inefficiency})
         
-        print(f"Validation - Epoch: {trainer.state.epoch} " 
-            f"Val Accuracy: {val_acc:.4f} Val Loss: {val_loss:.4f} "
+        print(f"Validation - Epoch: {trainer.state.epoch} | " 
+            f"Val Accuracy: {val_acc:.4f} | Val Loss: {val_loss:.4f} | "
             f"Val Inefficiency: {inefficiency:.4f}" )
         
         # writer.add_scalar("Validation/Accuracy", val_acc, trainer.state.epoch)
@@ -386,33 +381,30 @@ def main(hparams):
             }
 
             model_saved_path = results_dir / "best_model_inefficiency.pth"
+            print("model_saved_path", model_saved_path)
             torch.save(best_model_state_inefficiency, model_saved_path)
 
             print(f"Best model saved at epoch {trainer.state.epoch} with inefficiency {best_inefficiency:.4f}")
         
-        # Save the best model based on the best OOD detection on val data (best_ood)
-        nonlocal best_auroc, best_aupr
-        
-        if auroc >= best_auroc and aupr >= best_aupr:
-            best_auroc, best_aupr = auroc, aupr
-            best_model_state_ood = {
-                'model': model.state_dict(),
-                'optimizer': optimizer.state_dict(),
-                'epoch': trainer.state.epoch,
-                'likelihood': likelihood.state_dict() if not hparams.sngp else None,
-            }
-                
-            model_saved_path = results_dir / "best_model_ood.pth"
-            torch.save(best_model_state_ood, model_saved_path)
-            
-            # if likelihood is not None:
-            #     likelihood_saved_path = results_dir / "likelihood_ood.pth"
-            #     torch.save(likelihood.state_dict(), likelihood_saved_path)
-                
-            print(f"Best model saved at epoch {trainer.state.epoch} with best_auroc {best_auroc:.4f} and best_aupr {best_aupr:.4f}")
+        # # Save the best model based on the best OOD detection on val data (best_ood)
+        # nonlocal best_auroc, best_aupr
+        # if auroc >= best_auroc and aupr >= best_aupr:
+        #     best_auroc, best_aupr = auroc, aupr
+        #     best_model_state_ood = {
+        #         'model': model.state_dict(),
+        #         'optimizer': optimizer.state_dict(),
+        #         'epoch': trainer.state.epoch,
+        #         'likelihood': likelihood.state_dict() if not hparams.sngp else None,
+        #     }
+        #     model_saved_path = results_dir / "best_model_ood.pth"
+        #     torch.save(best_model_state_ood, model_saved_path)
+        #     # if likelihood is not None:
+        #     #     likelihood_saved_path = results_dir / "likelihood_ood.pth"
+        #     #     torch.save(likelihood.state_dict(), likelihood_saved_path)
+        #     print(f"Best model saved at epoch {trainer.state.epoch} with best_auroc {best_auroc:.4f} and best_aupr {best_aupr:.4f}")
     
             
-    results_to_save = {}
+    result = {}
         
     @trainer.on(Events.COMPLETED)
     def compute_test_loss_at_last_epoch(trainer):
@@ -426,15 +418,15 @@ def main(hparams):
         model.eval()  
         likelihood.eval() if not hparams.sngp else None
         
-        ood_model = copy.deepcopy(model)
-        ood_likelihood = copy.deepcopy(likelihood) if not hparams.sngp else None
-        
-        best_model_state_ood = torch.load(results_dir / "best_model_ood.pth")
-        ood_model.load_state_dict(best_model_state_ood['model'])
-        ood_likelihood.load_state_dict(best_model_state_ood['likelihood']) if not hparams.sngp else None
-        
-        ood_model.eval()  
-        ood_likelihood.eval() if not hparams.sngp else None
+        # ood_model = copy.deepcopy(model)
+        # ood_likelihood = copy.deepcopy(likelihood) if not hparams.sngp else None
+        #
+        # best_model_state_ood = torch.load(results_dir / "best_model_ood.pth")
+        # ood_model.load_state_dict(best_model_state_ood['model'])
+        # ood_likelihood.load_state_dict(best_model_state_ood['likelihood']) if not hparams.sngp else None
+        #
+        # ood_model.eval()
+        # ood_likelihood.eval() if not hparams.sngp else None
 
         all_cal_smx = []
         all_cal_labels = []
@@ -470,41 +462,42 @@ def main(hparams):
         # inefficiency_metric.update((test_state.output[0], test_state.output[1]))  # Pass the entire validation set
         inefficiency = inefficiency_metric.compute().item()
 
-        _, auroc, aupr = get_ood_metrics(
-                hparams.dataset, "Alzheimer", ood_model, ood_likelihood
-            ) 
+        if trainer.state.max_epochs:
+            _, auroc, aupr = get_ood_metrics(
+                hparams.dataset, "Alzheimer", model, likelihood
+            )
+
+            print(f"Test Accuracy: {test_accuracy:.4f} | Test Loss: {test_loss:.4f} |" 
+                f"Test_state Inefficiency: {inefficiency:.4f} | "  f"auroc {auroc:.4f} | ", f"aupr {aupr:.4f} ")
             
-        print(f"Final Test Accuracy: {test_accuracy:.4f}, Final Test Loss: {test_loss:.4f}", 
-                f"Test_state Inefficiency: {inefficiency:.4f}", f"auroc {auroc} ", f"aupr {aupr} ")
-            
-        results_to_save["auroc_ood_Alzheimer"] = auroc
-        results_to_save["aupr_ood_Alzheimer"] = aupr
-        results_to_save['test_accuracy'] = test_accuracy
-        results_to_save['test_loss'] = test_loss
-        results_to_save['Test_inefficiency'] = inefficiency
+            result["auroc"] = round(auroc, 4)
+            result["aupr"] = round(aupr, 4)
+
+        result['accuracy'] = round(test_accuracy, 4)
+        result['loss'] = round(test_loss, 4)
+        result['ineff'] = round(inefficiency, 4)
 
         if hparams.sngp:
-            coverage_mean, ineff_list = conformal_evaluate(model, likelihood=None, dataset=hparams.dataset,
-                                                        adaptive_flag=hparams.adaptive_conformal, alpha=hparams.alpha)
-            results_to_save["coverage_mean_sngp"] = str(coverage_mean)
-            results_to_save["ineff_list_sngp"] = str(ineff_list)
+            coverage_mean, ineff_list = conformal_evaluate(model, likelihood=None, dataset=hparams.dataset, adaptive_flag=hparams.adaptive_conformal, alpha=hparams.alpha)
+            result["coverage_mean"] = round(coverage_mean, 4)
+            result["ineff_list"] = round(ineff_list, 4)
 
             ### Save to json
-            results_json = json.dumps(results_to_save, indent=4, sort_keys=True)
-            (results_dir / "results_sngp.json").write_text(results_json)
+            # results_json = json.dumps(result, indent=4, sort_keys=True)
+            # (results_dir / "results_sngp.json").write_text(results_json)
 
         else:
-            coverage_mean, ineff_list = conformal_evaluate(model, likelihood, dataset=hparams.dataset,
-                                                        adaptive_flag=hparams.adaptive_conformal, alpha=hparams.alpha )
-            results_to_save["coverage_mean_gp"] = str(coverage_mean)
-            results_to_save["ineff_list_gp"] = str(ineff_list)
+            coverage_mean, ineff_list = conformal_evaluate(model, likelihood, dataset=hparams.dataset, adaptive_flag=hparams.adaptive_conformal, alpha=hparams.alpha )
+            result["coverage_mean"] = round(coverage_mean,4)
+            result["ineff_list"] = round(ineff_list, 4)
 
-            results_json = json.dumps(results_to_save, indent=4, sort_keys=True)
-            (results_dir / "results_GP.json").write_text(results_json)
+            # results_json = json.dumps(result, indent=4, sort_keys=True)
+            # (results_dir / "results_GP.json").write_text(results_json)
 
-        wandb.log({"Test_Loss": test_loss, "Test_Accuracy": test_accuracy,
-                   "Epoch": trainer.state.epoch, "Test_AUROC": auroc, "Test_AUPR": aupr,
-                   "Test_inefficiency":inefficiency, "coverage_mean":coverage_mean, "ineff_list":ineff_list})
+        # if trainer.state.epoch > 10 and trainer.state.epoch % 10 == 0:
+        #     wandb.log({"Test_Loss": test_loss, "Test_Accuracy": test_accuracy,
+        #                "Epoch": trainer.state.epoch, "Test_AUROC": auroc, "Test_AUPR": aupr,
+        #                "Test_inefficiency":inefficiency, "coverage_mean":coverage_mean, "ineff_list":ineff_list})
 
             # writer.add_scalar("Final Test/Accuracy", test_accuracy, trainer.state.epoch)
             # writer.add_scalar("Final Test/Loss", test_loss, trainer.state.epoch)
@@ -515,36 +508,36 @@ def main(hparams):
     # Start training
     trainer.run(train_loader, max_epochs=hparams.epochs)
 
-    scheduler.step()
+    # scheduler.step()
     writer.close()
 
     # plot_training_history(plot_train_loss, plot_val_loss, plot_train_acc, plot_val_acc)
     # plot_OOD(plot_auroc, plot_aupr)
 
-    return results_to_save
+    return result
 
 # Define a function to parse arguments
 def parse_arguments():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--learning_rate", type = float, default=0.1, help="Learning rate") # sngp = 0.05
-    parser.add_argument("--epochs", type=int, default=200)
+    parser.add_argument("--learning_rate", type = float, default=0.001, help="Learning rate") # sngp = 0.05
+    parser.add_argument("--epochs", type=int, default=100, help="Number of epochs to train for")
     parser.add_argument("--batch_size", type=int, default=64, help="Batch size to use for training")
-    parser.add_argument("--number_of_class", type=int, default =4)
+    parser.add_argument("--number_of_class", type=int, default=4)
     parser.add_argument("--alpha", type=float, default=0.05, help="Conformal Rate" )
     parser.add_argument("--dataset", default="Brain_tumors", choices=["Brain_tumors", "Alzheimer",'CIFAR10', 'CIFAR100', "SVHN"])
-    parser.add_argument("--n_inducing_points", type=int, default=10, help="Number of inducing points" )
+    parser.add_argument("--n_inducing_points", type=int, default=12, help="Number of inducing points" )
     parser.add_argument("--beta", type=int, default=0.1, help="Weight for conformal training loss")
-    parser.add_argument("--temperature", type=int, default=1., help="temperature for conformal training loss")
+    parser.add_argument("--temperature", type=int, default=1., help="Temperature for conformal training loss")
     parser.add_argument("--sngp", action="store_true", help="Use SNGP (RFF and Laplace) instead of a DUE (sparse GP)")
     parser.add_argument("--conformal_training", action="store_true", help="conformal training or not" )
     parser.add_argument("--force_directory", default="temp")
     parser.add_argument("--weight_decay", type=float, default=1e-4, help="Weight decay") # 5e-4
-    parser.add_argument("--dropout_rate", type=float, default =0.3, help="Dropout rate")
-    parser.add_argument("--kernel", default="RBF", choices=["RBF", "RQ", "Matern12", "Matern32", "Matern52"],help="Pick a kernel",)
+    parser.add_argument("--dropout_rate", type=float, default=0.3, help="Dropout rate")
+    parser.add_argument("--kernel", default="RBF", choices=["RBF", "RQ", "Matern12", "Matern32", "Matern52"], help="Pick a kernel",)
     parser.add_argument("--no_spectral_conv", action="store_false",  dest="spectral_conv", help="Don't use spectral normalization on the convolutions",)
     parser.add_argument( "--adaptive_conformal", action="store_true", help="adaptive conformal")
     parser.add_argument("--no_spectral_bn", action="store_false", dest="spectral_bn", help="Don't use spectral normalization on the batch normalization layers",)
-    parser.add_argument("--seed", type=int, default=23, help="Seed to use for training")
+    # parser.add_argument("--seed", type=int, nargs='+', default=[23], help="List of seeds to use for training")
     parser.add_argument("--coeff", type=float, default=3., help="Spectral normalization coefficient")
     parser.add_argument("--n_power_iterations", default=1, type=int, help="Number of power iterations")
     parser.add_argument("--output_dir", default="./default", type=str, help="Specify output directory")
@@ -552,7 +545,12 @@ def parse_arguments():
     return args 
     
 def run_main(args):
-    run = wandb.init()
+    seeds = [23] #[1, 7, 23, 42, 56]
+
+    # For the final results.csv file
+    dict_list = []
+
+    #run = wandb.init()
 
     hparams = Hyperparameters(**vars(args))
 
@@ -560,18 +558,29 @@ def run_main(args):
     end_event = torch.cuda.Event(enable_timing=True)
     start_event.record()
 
-    results_to_save = main(hparams)
+    ## python your_script.py --seed 42 99 123
+
+    for seed in seeds:
+        set_seed(seed)
+        result = main(hparams)
+        dict_list.append(result)
 
     if hparams.sngp:
-        file_name = "SNGP.csv"
+        file_name = "SNGP_res.csv"
     else:
-        file_name = "SNGPIP.csv"
+        file_name = "SNGPIP_res.csv"
 
-    with open(f'{file_name}', 'w') as csv_file:
-        writer = csv.writer(csv_file)
-        writer.writerow(["Metrics", "Value"])
-        for key, value in results_to_save.items():
-            writer.writerow([key, value])
+    with open(f'{file_name}', mode='w', newline='') as csv_file:
+        writer = csv.DictWriter(csv_file, fieldnames=dict_list[0].keys())
+        # Write the header (column names)
+        writer.writeheader()
+        # Write each dictionary as a row in the CSV file
+        writer.writerows(dict_list)
+
+    # The file has been saved automatically after the 'with' block
+    print(f"Data successfully written to {csv_file}")
+
+    calculate_and_save_statistics(file_name)
 
     end_event.record()
     torch.cuda.synchronize()
@@ -579,38 +588,36 @@ def run_main(args):
     elapsed_time = start_event.elapsed_time(end_event)
     elapsed_time_min = elapsed_time / 60000
     print(f"Elapsed time on GPU: {elapsed_time_min:.3f} min")
-    wandb.finish()
+    # wandb.finish()
     
 if __name__ == "__main__":
 
     args = parse_arguments()
     #### Run without wandb
-    # run_main(args)
+    run_main(args)
 
-    wandb.login()
-    # Step 1: Define a sweep
-    sweep_config = {'method': 'grid'}
-    metric = {'name': 'loss',
-             'goal': 'minimize' }
-    sweep_config['metric'] = metric
+    # wandb.login()
+    # # Step 1: Define a sweep
+    # sweep_config = {'method': 'grid'}
+    # metric = {'name': 'loss',
+    #          'goal': 'minimize' }
+    # sweep_config['metric'] = metric
 
     ### sngp
-    p = {'dropout_rate': {'values': [0.3] },
-                  'learning_rate': {'values': [0.001]},
-         'beta':{"values":[0.01]},
-         'temperature': {"values": [1]},
-                 }
+    # parameters = {'dropout_rate': {'values': [0.3] },
+    #               'learning_rate': {'values': [0.001]},
+    #      # 'beta':{"values":[0.01]},
+    #      # 'temperature': {"values": [1]},
+    #              }
 
     # ## Inducing Points
-    # p = {'dropout_rate': {'values': [0.3] },
+    # parameters = {'dropout_rate': {'values': [0.3] },
     #               'learning_rate' : {'values':[0.001] },
     #                }
 
-
-    sweep_config['parameters'] = p
-
-    ### Step 2: Initialize the Sweep
-    sweep_id = wandb.sweep(sweep=sweep_config, project="SNGP-Complete")
-
-    ###Step 4: Activate sweep agents
-    wandb.agent(sweep_id, function=partial(run_main, args=args) , count=1)
+    #
+    # sweep_config['parameters'] = parameters
+    # ### Step 2: Initialize the Sweep
+    # sweep_id = wandb.sweep(sweep=sweep_config, project="One_Model_IPGP")
+    # ###Step 4: Activate sweep agents
+    # wandb.agent(sweep_id, function=partial(run_main, args=args) , count=1)

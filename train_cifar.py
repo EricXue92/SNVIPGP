@@ -567,7 +567,7 @@ if __name__ == "__main__":
     #         "n_inducing_points" : {'values':[10, 20]}
     #         }
     parameters = {
-                  'learning_rate' : {'values':[0.001] },
+                  'learning_rate' : {'values':[0.001, 0.005, 0.01, 0.05] },
                 'dropout_rate': {'values': [0.3]},
                  'beta':{"values":[0.01, 0.05, 0.1, 1]},
                 'temperature': {"values": [2, 5, 10]},
@@ -577,4 +577,4 @@ if __name__ == "__main__":
     ### Step 2: Initialize the Sweep
     sweep_id = wandb.sweep(sweep=sweep_config,  project="CIFAR_SNGP_Training_new")
     ###Step 4: Activate sweep agents
-    wandb.agent( sweep_id, function=partial(run_main, args=args) , count=8)
+    wandb.agent( sweep_id, function=partial(run_main, args=args) , count=48)

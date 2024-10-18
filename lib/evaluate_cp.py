@@ -71,6 +71,31 @@ class ConformalInefficiency(Metric):
         return self.eff
 
 
+# For outputting uncertainty from the IPGP model
+class UncertaintyMetric(Metric):
+    def __init__(self, output_transform=lambda x: x):
+        super(UncertaintyMetric, self).__init__(output_transform=output_transform)
+        self._uncertainties = []
+
+    def reset(self):
+        """Reset the accumulated uncertainties."""
+        self._uncertainties = []
+
+    def update(self, output):
+        """Accumulate the uncertainty from each batch."""
+        _, _, _, uncertainty = output
+        self._uncertainties.append(torch.tensor(uncertainty))
+
+    def compute(self):
+        """Return the average uncertainty across all batches."""
+        # Stack all uncertainties and compute their mean
+        if len(self._uncertainties) == 0:
+            raise ValueError("Uncertainty metric must have at least one example before it can be computed.")
+
+        all_uncertainties = torch.concat(self._uncertainties, dim=0)
+        return all_uncertainties.mean(dim=1).squeeze().cpu().numpy()
+
+
 def tps(cal_smx, val_smx, cal_labels, val_labels, n, alpha):
 
 
@@ -210,7 +235,7 @@ def conformal_evaluate(model, likelihood, dataset, adaptive_flag, alpha=0.05):
         # We do not care much about the accuracy here
         combined_accuracy = (
             (torch.argmax(combined_prediction_tensor, axis=1) == combined_prediction_label).float().mean())
-        print(f"Combined_accuracy : {combined_accuracy.item()}")
+        print(f"Combined_accuracy : {combined_accuracy.item():.4f}")
 
         repeated_times = 100
 
@@ -236,7 +261,7 @@ def conformal_evaluate(model, likelihood, dataset, adaptive_flag, alpha=0.05):
         coverage_mean = np.mean(coverage_list)
         ineff_list = np.mean(ineff_list)
 
-        print(f"coverage mean, {coverage_mean} ", f"ineff_list, {ineff_list}")
+        print(f"coverage mean, {coverage_mean:.4f} ", f"ineff_list, {ineff_list:.4f}")
 
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
