@@ -130,7 +130,7 @@ def main(hparams):
         # Model for inducing points 
         model = dkl.DKL(feature_extractor, gp)
         # Print state_dict keys to debug
-        print("Model state dict keys before training:", model.state_dict().keys())
+        # print("Model state dict keys before training:", model.state_dict().keys())
 
         likelihood = SoftmaxLikelihood(num_features=hparams.number_of_class, num_classes=num_classes, mixing_weights=False)
         likelihood = likelihood.cuda()
@@ -278,8 +278,9 @@ def main(hparams):
             result += f"ELBO: {train_loss:.2f} | Accuracy: {train_acc:.2f} "
         print(result)
 
-        _, auroc, aupr = get_ood_metrics(hparams.dataset, "Alzheimer", model, likelihood)
-        print(f"OoD Metrics - AUROC: {auroc :.4f} | AUPR: {aupr :.4f}")
+        if trainer.state.epoch > 10 and trainer.state.epoch % 10 == 0:
+            _, auroc, aupr = get_ood_metrics(hparams.dataset, "Alzheimer", model, likelihood)
+            print(f"OoD Metrics - AUROC: {auroc :.4f} | AUPR: {aupr :.4f}")
 
         all_cal_smx = []
         all_cal_labels = []
@@ -435,22 +436,22 @@ def main(hparams):
         print(f"Test Accuracy: {test_accuracy:.4f} | Test Loss: {test_loss:.4f} |" 
                 f"Test_state Inefficiency: {inefficiency:.4f} | "  f"auroc {auroc:.4f} | ", f"aupr {aupr:.4f} ")
             
-        result["auroc"] = round(auroc, 4)
-        result["aupr"] = round(aupr, 4)
-        result['acc'] = round(test_accuracy, 4)
-        result['loss'] = round(test_loss, 4)
-        result['ineff'] = round(inefficiency, 4)
+        result["auroc"] = round(auroc, 3)
+        result["aupr"] = round(aupr, 3)
+        result['acc'] = round(test_accuracy, 3)
+        result['loss'] = round(test_loss, 3)
+        result['ineff'] = round(inefficiency, 3)
 
         if hparams.sngp:
             coverage_mean, ineff_list = conformal_evaluate(model, likelihood=None, dataset=hparams.dataset,
                                                            adaptive_flag=hparams.adaptive_conformal, alpha=hparams.alpha)
-            result["coverage_mean"] = round(coverage_mean, 4)
-            result["ineff_list"] = round(ineff_list, 4)
+            result["coverage_mean"] = round(coverage_mean, 3)
+            result["ineff_list"] = round(ineff_list, 3)
         else:
             coverage_mean, ineff_list = conformal_evaluate(model, likelihood, dataset=hparams.dataset,
                                                            adaptive_flag=hparams.adaptive_conformal, alpha=hparams.alpha )
-            result["coverage_mean"] = round(coverage_mean,4)
-            result["ineff_list"] = round(ineff_list, 4)
+            result["coverage_mean"] = round(coverage_mean, 3)
+            result["ineff_list"] = round(ineff_list, 3)
 
         # if trainer.state.epoch > 10 and trainer.state.epoch % 10 == 0:
         #     wandb.log({"Test_Loss": test_loss, "Test_Accuracy": test_accuracy,
@@ -484,7 +485,7 @@ def parse_arguments():
     parser.add_argument("--weight_decay", type=float, default=1e-4, help="Weight decay") # 5e-4
     parser.add_argument("--dropout_rate", type=float, default=0.3, help="Dropout rate")
     parser.add_argument("--kernel", default="RBF", choices=["RBF", "RQ", "Matern12", "Matern32", "Matern52"], help="Pick a kernel",)
-    parser.add_argument("--no_spectral_conv", action="store_false",  dest="spectral_conv", help="Don't use spectral normalization on the convolutions",)
+    parser.add_argument("--no_spectral_conv", action="store_false", dest="spectral_conv", help="Don't use spectral normalization on the convolutions",)
     parser.add_argument( "--adaptive_conformal", action="store_true", help="adaptive conformal")
     parser.add_argument("--no_spectral_bn", action="store_false", dest="spectral_bn", help="Don't use spectral normalization on the batch normalization layers",)
     # parser.add_argument("--seed", type=int, nargs='+', default=[23], help="List of seeds to use for training")
@@ -504,8 +505,6 @@ def run_main(args):
     start_event = torch.cuda.Event(enable_timing=True)
     end_event = torch.cuda.Event(enable_timing=True)
     start_event.record()
-
-    ## python your_script.py --seed 42 99 123
 
     for seed in seeds:
         set_seed(seed)

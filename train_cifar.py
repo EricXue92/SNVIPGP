@@ -515,6 +515,7 @@ def parse_arguments():
     parser.add_argument("--n_inducing_points", type=int, default=10, help="Number of inducing points" )
     parser.add_argument("--beta", type=int, default=0.1, help="Weight for conformal training loss")
     parser.add_argument("--sngp", action="store_true", help="Use SNGP (RFF and Laplace) instead of a DUE (sparse GP)")
+    parser.add_argument("--temperature", type=int, default=1., help="Temperature for conformal training loss")
     parser.add_argument("--conformal_training", action="store_true", help="conformal training or not" )
     parser.add_argument("--force_directory", default ="temp")
     parser.add_argument("--weight_decay", type=float, default=1e-4, help="Weight decay") # 5e-4
