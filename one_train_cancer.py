@@ -1,6 +1,6 @@
 import os
 # Run on GPU 1
-os.environ["CUDA_VISIBLE_DEVICES"]="0"
+os.environ["CUDA_VISIBLE_DEVICES"]="1"
 
 import argparse
 import copy
@@ -215,8 +215,6 @@ def main(hparams):
         if not hparams.sngp:
             y_pred = y_pred.to_data_independent_dist()
             y_pred = likelihood(y_pred).probs.mean(0)
-        # Debugging print to check types
-        # print(f"y_pred type: {type(y_pred)}, y type: {type(y)}")
         return y_pred, y
 
 
@@ -347,29 +345,29 @@ def main(hparams):
 
         
         # # Save the best model based on the best OOD detection on val data (best_ood)
-        nonlocal best_auroc, best_aupr
-
-        if auroc >= best_auroc and aupr >= best_aupr:
-            best_auroc, best_aupr = auroc, aupr
-            best_model_state_ood = {
-                'model': model.state_dict(),
-                'optimizer': optimizer.state_dict(),
-                'epoch': trainer.state.epoch,
-                'likelihood': likelihood.state_dict() if not hparams.sngp else None,
-            }
-
-            model_saved_path = results_dir / "best_model_ood.pth"
-            # Ensure the results directory exists
-            results_dir.mkdir(parents=True, exist_ok=True)
-            # Debugging output
-            print("model_saved_path", model_saved_path)
-
-            try:
-                # Attempt to save the model
-                torch.save(best_model_state_ood, model_saved_path)
-                print(f"Best model saved at epoch {trainer.state.epoch} with best_auroc {best_auroc:.4f} and best_aupr {best_aupr:.4f}")
-            except Exception as e:
-                print(f"Failed to save model due to: {e}")
+        # nonlocal best_auroc, best_aupr
+        #
+        # if auroc >= best_auroc and aupr >= best_aupr:
+        #     best_auroc, best_aupr = auroc, aupr
+        #     best_model_state_ood = {
+        #         'model': model.state_dict(),
+        #         'optimizer': optimizer.state_dict(),
+        #         'epoch': trainer.state.epoch,
+        #         'likelihood': likelihood.state_dict() if not hparams.sngp else None,
+        #     }
+        #
+        #     model_saved_path = results_dir / "best_model_ood.pth"
+        #     # Ensure the results directory exists
+        #     results_dir.mkdir(parents=True, exist_ok=True)
+        #     # Debugging output
+        #     print("model_saved_path", model_saved_path)
+        #
+        #     try:
+        #         # Attempt to save the model
+        #         torch.save(best_model_state_ood, model_saved_path)
+        #         print(f"Best model saved at epoch {trainer.state.epoch} with best_auroc {best_auroc:.4f} and best_aupr {best_aupr:.4f}")
+        #     except Exception as e:
+        #         print(f"Failed to save model due to: {e}")
 
 
     result = {}
@@ -386,16 +384,16 @@ def main(hparams):
         model.eval()  
         likelihood.eval() if not hparams.sngp else None
 
-        # ensuring that changes to the new object do not affect the original object
-        ood_model = copy.deepcopy(model)
-        ood_likelihood = copy.deepcopy(likelihood) if not hparams.sngp else None
-
-        best_model_state_ood = torch.load(results_dir / "best_model_ood.pth")
-        ood_model.load_state_dict(best_model_state_ood['model'], strict=False)
-        ood_likelihood.load_state_dict(best_model_state_ood['likelihood']) if not hparams.sngp else None
-
-        ood_model.eval()
-        ood_likelihood.eval() if not hparams.sngp else None
+        # # ensuring that changes to the new object do not affect the original object
+        # ood_model = copy.deepcopy(model)
+        # ood_likelihood = copy.deepcopy(likelihood) if not hparams.sngp else None
+        #
+        # best_model_state_ood = torch.load(results_dir / "best_model_ood.pth")
+        # ood_model.load_state_dict(best_model_state_ood['model'], strict=False)
+        # ood_likelihood.load_state_dict(best_model_state_ood['likelihood']) if not hparams.sngp else None
+        #
+        # ood_model.eval()
+        # ood_likelihood.eval() if not hparams.sngp else None
 
         all_cal_smx = []
         all_cal_labels = []

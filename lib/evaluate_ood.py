@@ -5,7 +5,7 @@ import torch.nn.functional as F
 import gpytorch
 from sklearn.metrics import roc_auc_score, precision_recall_curve, auc
 from .datasets import get_dataset
-from sngp_wrapper.covert_utils import convert_to_sn_my, replace_layer_with_gaussian
+#from sngp_wrapper.covert_utils import convert_to_sn_my, replace_layer_with_gaussian
 from torch.utils.data import ConcatDataset, DataLoader, Dataset
 import gc
 
@@ -52,6 +52,7 @@ def loop_over_dataloader(model, likelihood, dataloader):
                 # logits = output - torch.max(output)
                 # From: https://github.com/google/uncertainty-baselines/blob/main/baselines/cifar/ood_utils.py#L22
                 # K/(K + sum( exp(logits) ) )
+
                 num_classes = output.shape[-1]
                 num_classes = torch.tensor(num_classes, dtype=output.dtype, device=output.device)
                 belief_mass = torch.sum(torch.exp(output), dim=-1)
@@ -64,7 +65,12 @@ def loop_over_dataloader(model, likelihood, dataloader):
                     output = probs.mean(0)  # (batch_size, num_of_classes)
                     # predictive_variances = probs.var(0)
                     # Cross Entropy -> Higher entropy indicates higher uncertainty.
-                uncertainty = -(output * output.log()).sum(1)
+                num_classes = output.shape[-1]
+                num_classes = torch.tensor(num_classes, dtype=output.dtype, device=output.device)
+                belief_mass = torch.sum(torch.exp(output), dim=-1)
+                uncertainty = num_classes / (belief_mass + num_classes)
+
+                #uncertainty = -(output * output.log()).sum(1)
 
             pred = torch.argmax(output, dim=1)
             accuracy = pred.eq(target)

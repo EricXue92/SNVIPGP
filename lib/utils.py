@@ -10,26 +10,23 @@ import pandas as pd
 
 def calculate_and_save_statistics(file_name):
     df = pd.read_csv(file_name)
-
     # Calculate the mean and variance for each column
     mean_values = round(df.mean(), 4)
     variance_values = round(df.var(), 4)
 
     # Print the results
-    print("Mean of each column:")
-    print(mean_values)
-
-    print("\nVariance of each column:")
-    print(variance_values)
+    print(f"Mean of each column: {mean_values}")
+    print(f"\nVariance of each column: {variance_values}")
 
     # Optional: Save the mean and variance to another CSV file
-    mean_variance_file = file_name + "_output.csv"
+    tmp = file_name.split('.')[0]
+    mean_variance_file = f"{tmp}_output.csv"
+
     mean_variance_df = pd.DataFrame({'Mean': mean_values, 'Variance': variance_values})
     mean_variance_df.to_csv(mean_variance_file)
 
     print(f"\nMean and variance saved to {mean_variance_file}")
 
-# 设置np.random.seed(seed) 和 torch.manual_seed(seed), 重复实验
 def set_seed(seed):
     if seed is None:
         seed = np.random.randint(1, 1000)
@@ -61,7 +58,6 @@ def plot_training_history(train_loss, val_loss, train_acc, val_acc):
     plt.tight_layout()
     plt.savefig('Learning_process.pdf')
 
-
 def plot_OOD(plot_auroc, plot_aupr):
     epochs = range(1, len(plot_auroc) + 1)
     plt.figure(figsize=(12, 5))
@@ -75,9 +71,6 @@ def plot_OOD(plot_auroc, plot_aupr):
     plt.savefig('OOD_process.pdf')
 
 
-# # Create a Path object for the "runs" directory
-# 为 runs 文件夹建立 路径对象 并建立文件夹
-
 # path = pathlib.Path("runs")
 # # Check if the path exists
 # if path.exists():
@@ -88,17 +81,15 @@ def plot_OOD(plot_auroc, plot_aupr):
 #     path.mkdir()
 #     print(f"Directory {path} created.")
 
-# 创建文件夹路径（默认路径+时间）
+# # Create a Path object for the "runs" directory
 def get_results_directory(name, stamp=True):
     # 2024-06-30-Sunday-20-22-46
     timestamp = datetime.now().strftime("%Y-%m-%d-%A-%H-%M-%S")
-    # 建立一个 路径对象
+    # Create a Path object for the "runs" directory
     results_dir = pathlib.Path("runs")
-    # name 默认为 default
     if name is not None:
         results_dir = results_dir / name
-
-    # 新的文件路径 "runs/2024-06-30-Sunday-20-22-46"
+    # "runs/2024-06-30-Sunday-20-22-46"
     results_dir = results_dir / timestamp if stamp else results_dir
     # Create the directory and any missing parent directories
     results_dir.mkdir(parents=True)
@@ -108,20 +99,15 @@ def get_results_directory(name, stamp=True):
 # The Hyperparameters class manages hyperparameters for a model,
 # allowing them to be easily saved, loaded, and updated.
 # It supports initialization from a file and dynamic updates via keyword arguments.
-
 class Hyperparameters:
-    # It can load hyperparameters from a file if a path is provided as the first argument.
-    # Updates with any additional keyword arguments provided.
     def __init__(self, *args, **kwargs):
-        # if len(args) == 1 and isinstance(args[0], Path):
-        # self.load(args[0])
-        if len(args) == 1:
+        # If the first argument is a Path object, load hyperparameters from the file
+        if len(args) == 1 and isinstance(args[0], Path):
             self.load(args[0])
-        #####
+        # Otherwise, initialize hyperparameters from keyword arguments
         self.from_dict(kwargs)
 
     # convert hyperparameters to dictionary
-
     # class ExampleClass:
     #     def __init__(self, name, value):
     #         self.name = name
@@ -133,13 +119,11 @@ class Hyperparameters:
     # example_dict = example.to_dict()
     # print(example_dict)  # Output: {'name': 'example', 'value': 42}
 
-    #  Converts the hyperparameters into a dictionary format using vars(self)
+    #  The to_dict method converts the attributes of the object to a dictionary.
     def to_dict(self):
         return vars(self)
-        # This method will dynamically set the attributes of MyClass instances
 
-    # based on the key-value pairs in the dictionary.
-    ###### 把一个字典的键值对 自动转换成 对象的属性
+    # The from_dict method updates the attributes of the object using a dictionary.
     def from_dict(self, dictionary):
         for k, v in dictionary.items():
             setattr(self, k, v)
@@ -178,7 +162,7 @@ class Hyperparameters:
     def __contains__(self, k):
         return hasattr(self, k)
 
-    # rovides a readable string representation of the hyperparameters in JSON format
+    # provides a readable string representation of the hyperparameters in JSON format
     def __str__(self):
         return f"Hyperparameters:\n {self.to_json()}"
 
