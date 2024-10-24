@@ -509,7 +509,7 @@ def parse_arguments():
     parser.add_argument("--number_of_class", type=int, default=10)
     parser.add_argument("--alpha", type=float, default=0.05, help="Conformal Rate" )
     parser.add_argument("--dataset", default="CIFAR10", choices=["Brain_tumors", "Alzheimer", 'CIFAR100', "SVHN"])
-    parser.add_argument("--n_inducing_points", type=int, default= 8, help="Number of inducing points" )
+    parser.add_argument("--n_inducing_points", type=int, default=8, help="Number of inducing points" )
     parser.add_argument("--beta", type=int, default=0.1, help="Weight for conformal training loss")
     #action="store_true" -> false,
     parser.add_argument("--sngp", action="store_true", help="Use SNGP (RFF and Laplace) instead of a DUE (sparse GP)")

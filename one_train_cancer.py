@@ -29,32 +29,19 @@ import csv
 # For context see: https://github.com/pytorch/pytorch/issues/47908
 NUM_WORKERS = os.cpu_count()
 
-# import wandb
-# from functools import partial
 
 # https://datascience.stackexchange.com/questions/31113/validation-showing-huge-fluctuations-what-could-be-the-cause
 
-def set_saving_file(hparams):
+
+def main(hparams):
     if hparams.force_directory is None:
         results_dir = get_results_directory(hparams.output_dir)
     else:
         os.makedirs(hparams.force_directory, exist_ok=True)
         results_dir = Path(hparams.force_directory)
-    return results_dir
 
-def main(hparams):
-
-    #hparams.n_inducing_points = wandb.config.n_inducing_points
-    # hparams.learning_rate = wandb.config.learning_rate
-    # hparams.dropout_rate = wandb.config.dropout_rate
-    # hparams.temperature = wandb.config.temperature
-    # hparams.beta = wandb.config.beta
-
-    results_dir = set_saving_file(hparams)
     print(f"save to results_dir {results_dir}")
     writer = SummaryWriter(log_dir=str(results_dir))
-
-    #set_seed(hparams.seed)
 
     # Data Preparation
     ds = get_dataset(hparams.dataset)
@@ -142,8 +129,8 @@ def main(hparams):
     #### Note:
     parameters = [ {"params": model.parameters() } ]
 
-    # if not hparams.sngp:
-    #     parameters.append( {"params": likelihood.parameters()} )
+    if not hparams.sngp:
+        parameters.append( {"params": likelihood.parameters()} )
 
     optimizer = torch.optim.AdamW(
         parameters,
@@ -155,7 +142,7 @@ def main(hparams):
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=training_steps)
 
     best_inefficiency, best_auroc, best_aupr = float('inf'), float('-inf'), float('-inf')
-    best_model_state_inefficiency, best_model_state_ood = None, None
+    best_model_state_inefficiency = None
     
     # For plotting
     # plot_train_acc, plot_val_acc = [], []
@@ -318,7 +305,7 @@ def main(hparams):
             f"Val Inefficiency: {inefficiency:.4f}" )
 
         # Save the best model based on the smallest inefficiency on val data 
-        nonlocal best_inefficiency, best_model_state_inefficiency, best_model_state_ood
+        nonlocal best_inefficiency, best_model_state_inefficiency
         
         if inefficiency < best_inefficiency:
             best_inefficiency = inefficiency
@@ -344,32 +331,6 @@ def main(hparams):
             except Exception as e:
                 print(f"Failed to save model due to: {e}")
 
-        
-        # # Save the best model based on the best OOD detection on val data (best_ood)
-        # nonlocal best_auroc, best_aupr
-        #
-        # if auroc >= best_auroc and aupr >= best_aupr:
-        #     best_auroc, best_aupr = auroc, aupr
-        #     best_model_state_ood = {
-        #         'model': model.state_dict(),
-        #         'optimizer': optimizer.state_dict(),
-        #         'epoch': trainer.state.epoch,
-        #         'likelihood': likelihood.state_dict() if not hparams.sngp else None,
-        #     }
-        #
-        #     model_saved_path = results_dir / "best_model_ood.pth"
-        #     # Ensure the results directory exists
-        #     results_dir.mkdir(parents=True, exist_ok=True)
-        #     # Debugging output
-        #     print("model_saved_path", model_saved_path)
-        #
-        #     try:
-        #         # Attempt to save the model
-        #         torch.save(best_model_state_ood, model_saved_path)
-        #         print(f"Best model saved at epoch {trainer.state.epoch} with best_auroc {best_auroc:.4f} and best_aupr {best_aupr:.4f}")
-        #     except Exception as e:
-        #         print(f"Failed to save model due to: {e}")
-
 
     result = {}
     # Define a function to be executed when training is completed
@@ -384,17 +345,6 @@ def main(hparams):
 
         model.eval()  
         likelihood.eval() if not hparams.sngp else None
-
-        # # ensuring that changes to the new object do not affect the original object
-        # ood_model = copy.deepcopy(model)
-        # ood_likelihood = copy.deepcopy(likelihood) if not hparams.sngp else None
-        #
-        # best_model_state_ood = torch.load(results_dir / "best_model_ood.pth")
-        # ood_model.load_state_dict(best_model_state_ood['model'], strict=False)
-        # ood_likelihood.load_state_dict(best_model_state_ood['likelihood']) if not hparams.sngp else None
-        #
-        # ood_model.eval()
-        # ood_likelihood.eval() if not hparams.sngp else None
 
         all_cal_smx = []
         all_cal_labels = []
@@ -453,11 +403,6 @@ def main(hparams):
             result["coverage_mean"] = round(coverage_mean, 3)
             result["ineff_list"] = round(ineff_list, 3)
 
-        # if trainer.state.epoch > 10 and trainer.state.epoch % 10 == 0:
-        #     wandb.log({"Test_Loss": test_loss, "Test_Accuracy": test_accuracy,
-        #                "Epoch": trainer.state.epoch, "Test_AUROC": auroc, "Test_AUPR": aupr,
-        #                "Test_inefficiency":inefficiency, "coverage_mean":coverage_mean, "ineff_list":ineff_list})
-
     # Adding a progress bar
     ProgressBar(persist=True).attach(trainer)
     # Start training
@@ -496,7 +441,7 @@ def parse_arguments():
     return args 
     
 def run_main(args):
-    seeds = [1, 7, 23, 42, 56] #[1, 7, 23, 42, 56]
+    seeds = [1, 7, 23, 42, 56]
     # For the final results.csv file
     dict_list = []
     #run = wandb.init()
@@ -534,7 +479,6 @@ def run_main(args):
     elapsed_time = start_event.elapsed_time(end_event)
     elapsed_time_min = elapsed_time / 60000
     print(f"Elapsed time on GPU: {elapsed_time_min:.3f} min")
-    # wandb.finish()
     
 if __name__ == "__main__":
 
@@ -542,28 +486,6 @@ if __name__ == "__main__":
     #### Run without wandb
     run_main(args)
 
-    # wandb.login()
-    # # Step 1: Define a sweep
-    # sweep_config = {'method': 'grid'}
-    # metric = {'name': 'loss',
-    #          'goal': 'minimize' }
-    # sweep_config['metric'] = metric
 
-    ### sngp
-    # parameters = {'dropout_rate': {'values': [0.3] },
-    #               'learning_rate': {'values': [0.001]},
-    #      # 'beta':{"values":[0.01]},
-    #      # 'temperature': {"values": [1]},
-    #              }
 
-    # ## Inducing Points
-    # parameters = {'dropout_rate': {'values': [0.3] },
-    #               'learning_rate' : {'values':[0.001] },
-    #                }
 
-    #
-    # sweep_config['parameters'] = parameters
-    # ### Step 2: Initialize the Sweep
-    # sweep_id = wandb.sweep(sweep=sweep_config, project="One_Model_IPGP")
-    # ###Step 4: Activate sweep agents
-    # wandb.agent(sweep_id, function=partial(run_main, args=args) , count=1)

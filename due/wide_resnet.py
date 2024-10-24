@@ -36,17 +36,12 @@ class WideBasic(nn.Module):
 
     def forward(self, x):
         out = F.relu(self.bn1(x))
-
         out = self.conv1(out)
-
         out = F.relu(self.bn2(out))
-
         if self.dropout_rate > 0:
             out = self.dropout(out)
-
         out = self.conv2(out)
         out += self.shortcut(x)
-
         return out
 
 
@@ -163,10 +158,8 @@ class WideResNet(nn.Module):
         out = out.flatten(1)
 
         if self.num_classes is not None:
-
             # If "nosoftmax" is in kwargs and set to True,
             # it means that softmax (or log-softmax) should not be applied to the output logits
-
             if "nosoftmax" in kwargs and kwargs["nosoftmax"]:
                 nosoftmax = True
                 kwargs.pop("nosoftmax")
@@ -187,5 +180,4 @@ class WideResNet(nn.Module):
                 prob = F.log_softmax(out, dim=1)
                 return prob
         else:
-            # self.linear(out, **kwargs)
             return out

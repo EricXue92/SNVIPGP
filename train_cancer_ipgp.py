@@ -132,7 +132,7 @@ def main(hparams):
         
         # Model for inducing points 
         model = dkl.DKL(feature_extractor, gp)
-        likelihood = SoftmaxLikelihood(num_classes=num_classes, mixing_weights=False)
+        likelihood = SoftmaxLikelihood(num_features=hparams.number_of_class, num_classes=num_classes, mixing_weights=False)
         likelihood = likelihood.cuda()
         elbo_fn = VariationalELBO(likelihood, gp, num_data=len(train_dataset))
         loss_fn = lambda x, y: -elbo_fn(x, y)
@@ -526,7 +526,7 @@ def main(hparams):
 def parse_arguments():
     parser = argparse.ArgumentParser()
     parser.add_argument("--learning_rate", type = float, default=0.1, help="Learning rate") # sngp = 0.05
-    parser.add_argument("--epochs", type=int, default=200)
+    parser.add_argument("--epochs", type=int, default=2)
     parser.add_argument("--batch_size", type=int, default=64, help="Batch size to use for training")
     parser.add_argument("--number_of_class", type=int, default=4)
     parser.add_argument("--alpha", type=float, default=0.05, help="Conformal Rate" )
@@ -535,7 +535,7 @@ def parse_arguments():
     parser.add_argument("--beta", type=int, default=0.1, help="Weight for conformal training loss")
     parser.add_argument("--temperature", type=int, default=1., help="temperature for conformal training loss")
     parser.add_argument("--sngp", action="store_true", help="Use SNGP (RFF and Laplace) instead of a DUE (sparse GP)")
-    parser.add_argument("--conformal_training", action="store_false", help="conformal training or not" )
+    parser.add_argument("--conformal_training", action="store_true", help="conformal training or not" )
     parser.add_argument("--force_directory", default="temp")
     parser.add_argument("--weight_decay", type=float, default=1e-4, help="Weight decay") # 5e-4
     parser.add_argument("--dropout_rate", type=float, default =0.3, help="Dropout rate")

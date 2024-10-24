@@ -45,7 +45,6 @@ class ConformalTrainingLoss(nn.Module):
             print(f"size loss is {size_loss}")
             return size_loss
 
-
 class ConformalInefficiency(Metric):
     def __init__(self, alpha=0.05, output_transform=lambda x: x):
         self.cal_smx = None
@@ -69,34 +68,7 @@ class ConformalInefficiency(Metric):
     def compute(self):
         return self.eff
 
-
-# # For outputting uncertainty from the IPGP model
-# class UncertaintyMetric(Metric):
-#     def __init__(self, output_transform=lambda x: x):
-#         super(UncertaintyMetric, self).__init__(output_transform=output_transform)
-#         self._uncertainties = []
-#
-#     def reset(self):
-#         """Reset the accumulated uncertainties."""
-#         self._uncertainties = []
-#
-#     def update(self, output):
-#         """Accumulate the uncertainty from each batch."""
-#         _, _, uncertainty = output
-#         self._uncertainties.append(torch.tensor(uncertainty))
-#
-#     def compute(self):
-#         """Return the average uncertainty across all batches."""
-#         # Stack all uncertainties and compute their mean
-#         if len(self._uncertainties) == 0:
-#             raise ValueError("Uncertainty metric must have at least one example before it can be computed.")
-#
-#         all_uncertainties = torch.concat(self._uncertainties, dim=0)
-#         return all_uncertainties.mean(dim=1).squeeze().cpu().numpy()
-
-
 def tps(cal_smx, val_smx, cal_labels, val_labels, n, alpha):
-
 
     # 1: get conformal scores
     cal_scores = 1 - cal_smx[torch.arange(n), cal_labels]
@@ -150,7 +122,7 @@ def get_multiple_permutations(permutation_size: int = 500, num_permutations: int
         return [data[f'arr_{i}'] for i in range(num_permutations)]
 
 
-def conformal_evaluate(model, likelihood, dataset, adaptive_flag, alpha=0.05):
+def conformal_evaluate(model, likelihood, dataset, adaptive_flag, alpha):
     if dataset == 'CIFAR10':
         _, _, _, val_dataset, test_dataset = get_CIFAR10()
     elif dataset == 'Brain_tumors':
@@ -245,15 +217,14 @@ def conformal_evaluate(model, likelihood, dataset, adaptive_flag, alpha=0.05):
 
         cal_size = len(val_label_tensor)
 
-        alpha = 0.05
         for i in range(repeated_times):
             permutation_index = custom_permutation[i]
             cal_smx, val_smx = combined_prediction_tensor[permutation_index][:cal_size], combined_prediction_tensor[permutation_index][cal_size:]
             cal_labels, val_labels = combined_prediction_label[permutation_index][:cal_size], combined_prediction_label[permutation_index][cal_size:]
             if adaptive_flag:
-                _, coverage, ineff = adaptive_tps(cal_smx, val_smx, cal_labels, val_labels, cal_size, 0.05)
+                _, coverage, ineff = adaptive_tps(cal_smx, val_smx, cal_labels, val_labels, cal_size, alpha)
             else:
-                _, coverage, ineff = tps(cal_smx, val_smx, cal_labels, val_labels, cal_size, 0.05)
+                _, coverage, ineff = tps(cal_smx, val_smx, cal_labels, val_labels, cal_size, alpha)
             coverage_list.append(coverage)
             ineff_list.append(ineff)
 

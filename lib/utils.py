@@ -7,6 +7,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
 import pandas as pd
+import os
 
 def calculate_and_save_statistics(file_name):
     df = pd.read_csv(file_name)
@@ -15,8 +16,8 @@ def calculate_and_save_statistics(file_name):
     variance_values = round(df.var(), 4)
 
     # Print the results
-    print(f"Mean of each column: {mean_values}")
-    print(f"\nVariance of each column: {variance_values}")
+    print(f"Mean of each column: \n{mean_values}")
+    print(f"\nVariance of each column: \n{variance_values}")
 
     # Optional: Save the mean and variance to another CSV file
     tmp = file_name.split('.')[0]
@@ -28,9 +29,8 @@ def calculate_and_save_statistics(file_name):
     print(f"\nMean and variance saved to {mean_variance_file}")
 
 def set_seed(seed):
-    if seed is None:
-        seed = np.random.randint(1, 1000)
     random.seed(seed)
+    os.environ['PYTHONHASHSEED'] = str(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)

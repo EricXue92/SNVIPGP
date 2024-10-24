@@ -137,7 +137,7 @@ def main(hparams):
         
         # Model for inducing points 
         model = dkl.DKL(feature_extractor, gp)
-        likelihood = SoftmaxLikelihood(num_classes=num_classes, mixing_weights=False)
+        likelihood = SoftmaxLikelihood(num_features=num_classes, num_classes=num_classes, mixing_weights=False)
         likelihood = likelihood.cuda()
 
         elbo_fn = VariationalELBO(likelihood, gp, num_data=len(train_dataset))
@@ -147,12 +147,10 @@ def main(hparams):
     #### Note:
     parameters = [ {"params": model.parameters() } ]
     ###
-
     if not hparams.sngp:
         parameters.append( {"params": likelihood.parameters() } )
 
     optimizer = torch.optim.AdamW(
-        # model.parameters(),
         parameters,
         lr=hparams.learning_rate,
         weight_decay=hparams.weight_decay
