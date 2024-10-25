@@ -5,7 +5,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import gpytorch
 from .datasets import get_dataset
-from lib.datasets import get_Brain_tumors, get_Alzheimer, get_CIFAR10, get_CIFAR100, get_SVHN
+from lib.datasets import get_Brain_tumors, get_Alzheimer, get_CIFAR10, get_CIFAR100, get_SVHN, get_tumors_feature
 from ignite.metrics import Metric
 from torch.utils.data import Dataset, DataLoader
 
@@ -24,12 +24,7 @@ class ConformalTrainingLoss(nn.Module):
         conformity_score = probabilities[torch.arange(len(probabilities)), y]
         tau = torch.quantile(conformity_score, self.alpha)
         in_set_prob = F.sigmoid((probabilities - tau) / self.temperature)
-
-        # print("in_set_prob", in_set_prob, in_set_prob.shape)
-
         # Clamping: Ensures that the result is not less than 0, preventing negative values after subtraction
-        # Computes a penalty based on the size of prediction sets
-
         ### [ont] important notes 2: as we have relative small num of classes, therefore, consider remove the torch.log
         # size_loss = torch.log(torch.clamp(in_set_prob.sum(axis=1) - 1, min=0).mean(axis=0))
         size_loss = torch.clamp(in_set_prob.sum(dim=1) - 1, min=0).mean(dim=0)
@@ -80,7 +75,9 @@ def tps(cal_smx, val_smx, cal_labels, val_labels, n, alpha):
     coverage = prediction_sets[torch.arange(prediction_sets.shape[0]), val_labels].float().mean()
     # efficiency -- the size of the prediction set
     efficiency = torch.sum(prediction_sets) / len(prediction_sets)
-    return prediction_sets.numpy(), coverage.item(), efficiency
+
+    prediction_sets = prediction_sets.cpu()
+    return prediction_sets.numpy(), coverage.item(), efficiency.item()
 
 
 def adaptive_tps(cal_smx, val_smx, cal_labels, val_labels, n, alpha):
@@ -126,9 +123,9 @@ def conformal_evaluate(model, likelihood, dataset, adaptive_flag, alpha):
     if dataset == 'CIFAR10':
         _, _, _, val_dataset, test_dataset = get_CIFAR10()
     elif dataset == 'Brain_tumors':
-        _, _, _, val_dataset, test_dataset = get_Brain_tumors()
+        _, _, _, val_dataset, test_dataset = get_tumors_feature(image_path="./data_feature/Brain_tumors")#get_Brain_tumors()
     elif dataset == 'Alzheimer':
-        _, _, _, val_dataset, test_dataset = get_Alzheimer()
+        _, _, _, val_dataset, test_dataset = get_tumors_feature(image_path="./data_feature/Alzheimer") #get_Alzheimer()
     elif dataset == 'SVHN':
         _, _, _, val_dataset, test_dataset = get_SVHN()
     elif dataset == 'CIFAR100':
@@ -153,15 +150,9 @@ def conformal_evaluate(model, likelihood, dataset, adaptive_flag, alpha):
         test_dataloader = test_dataset
 
     model.eval()
-    if likelihood is not None:
-        likelihood.eval()
+    likelihood.eval() if likelihood is not None else None
 
-    n = len(val_dataset)
-
-    val_prediction_list = []
-    test_prediction_list = []
-    val_label_list = []
-    test_label_list = []
+    val_prediction_list, val_label_list, test_prediction_list, test_label_list = [], [], [], []
 
     with torch.no_grad():
         for data, target in val_dataloader:
@@ -178,6 +169,7 @@ def conformal_evaluate(model, likelihood, dataset, adaptive_flag, alpha):
                     # likelihood( model(data) ) -> obtain the predictive distribution.
                     output = likelihood(y_pred).probs.mean(0)  # (batch_size, 4)
                     val_prediction_list.append(output.cpu())
+
             val_label_list.append(target)
 
         for data, target in test_dataloader:
@@ -194,28 +186,19 @@ def conformal_evaluate(model, likelihood, dataset, adaptive_flag, alpha):
                     test_prediction_list.append(output.cpu())
             test_label_list.append(target)
 
-        val_prediction_tensor = torch.cat(val_prediction_list, axis=0)
-        val_label_tensor = torch.cat(val_label_list, axis=0)
+        val_prediction_list, test_prediction_list = torch.cat(val_prediction_list, axis=0), torch.cat(test_prediction_list, axis=0)
+        val_label_list, test_label_list = torch.cat(val_label_list, axis=0), torch.cat(test_label_list, axis=0)
 
-        test_prediction_list = torch.cat(val_prediction_list, axis=0)
-        test_label_tensor = torch.cat(val_label_list, axis=0)
-
-        combined_prediction_tensor = torch.cat([val_prediction_tensor, test_prediction_list], axis=0).cpu()
-        combined_prediction_label = torch.cat([val_label_tensor, test_label_tensor], axis=0).cpu()
-
-        # We do not care much about the accuracy here
-        combined_accuracy = (
-            (torch.argmax(combined_prediction_tensor, axis=1) == combined_prediction_label).float().mean())
-        print(f"Combined_accuracy : {combined_accuracy.item():.4f}")
+        combined_prediction_tensor = torch.cat([val_prediction_list, test_prediction_list], axis=0).cpu()
+        combined_prediction_label = torch.cat([val_label_list, test_label_list], axis=0).cpu()
+        print(f"combined accuracy {torch.argmax(combined_prediction_tensor, dim=1).eq(combined_prediction_label).float().mean().item():.4f}")
 
         repeated_times = 100
-
         custom_permutation = get_multiple_permutations(permutation_size=len(combined_prediction_tensor),
                                                        num_permutations=repeated_times,
                                                        permutation_data_dir="permutation_data")
         coverage_list, ineff_list = [], []
-
-        cal_size = len(val_label_tensor)
+        cal_size = len(val_label_list)
 
         for i in range(repeated_times):
             permutation_index = custom_permutation[i]

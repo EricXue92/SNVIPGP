@@ -155,6 +155,7 @@ class WideResNet(nn.Module):
         out = self.layer3(out)
         out = F.relu(self.bn1(out))
         out = F.avg_pool2d(out, out.shape[-1])
+        # tensor.flatten(start_dim=0, end_dim=-1)
         out = out.flatten(1)
 
         if self.num_classes is not None:

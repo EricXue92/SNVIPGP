@@ -4,7 +4,7 @@ import torch
 import torch.nn.functional as F
 import gpytorch
 from sklearn.metrics import roc_auc_score, precision_recall_curve, auc
-from .datasets import get_dataset
+from .datasets import get_dataset, get_feature_dataset
 #from sngp_wrapper.covert_utils import convert_to_sn_my, replace_layer_with_gaussian
 from torch.utils.data import ConcatDataset, DataLoader, Dataset
 import gc
@@ -12,7 +12,7 @@ import gc
 NUM_WORKERS = os.cpu_count()
 
 def prepare_ood_datasets(true_dataset, ood_dataset):
-    ood_dataset.transform = true_dataset.transform
+    # ood_dataset.transform = true_dataset.transform
     datasets = [true_dataset, ood_dataset]
     anomaly_targets = torch.cat(
         (torch.zeros(len(true_dataset)), torch.ones(len(ood_dataset)))
@@ -32,7 +32,7 @@ def loop_over_dataloader(model, likelihood, dataloader):
         likelihood.eval()
     else:
         # For SNGP Uncertainty
-        model.linear.update_covariance_matrix()
+        model.classifier.update_covariance_matrix()
 
     with torch.no_grad():
         scores = []
@@ -44,23 +44,9 @@ def loop_over_dataloader(model, likelihood, dataloader):
             if likelihood is None:
                 # output: (batch_size, num_of_classes) (64, 4)
                 output, uncertainty = model(data, kwargs={"update_precision_matrix": False,
-                                                          "return_covariance": True, "nosoftmax": True} )
-
-                # SNGP Uncertainty with variance
-                uncertainty = torch.diagonal(uncertainty, 0)
-
-                # Cross Entropy Uncertainty
-                # uncertainty = -(output * output.log()).sum(1)
-
-                # Dempster-Shafer uncertainty for SNGP
-                # log(softmax) -> logits
-                # From: https://github.com/google/uncertainty-baselines/blob/main/baselines/cifar/ood_utils.py#L22
-                # K/(K + sum( exp(logits) ) )
-
-                # num_classes = output.shape[-1]
-                # num_classes = torch.tensor(num_classes, dtype=output.dtype, device=output.device)
-                # belief_mass = torch.sum(torch.exp(output), dim=-1)
-                # uncertainty = num_classes / (belief_mass + num_classes)
+                                                          "return_covariance": True} )
+                uncertainty = torch.diag(uncertainty)
+                # uncertainty = 1 - torch.max(output, dim=-1)[0]
             else:
                 with gpytorch.settings.num_likelihood_samples(32):
                     y_pred = model(data).to_data_independent_dist()
@@ -72,7 +58,6 @@ def loop_over_dataloader(model, likelihood, dataloader):
                     # GP Uncertainty
                     uncertainty = probs.var(0)
                     # # return the maximum or mean uncertainty across the classes
-                    # # uncertainty, _ = torch.max(uncertainty, dim=1)
                 uncertainty = torch.mean(uncertainty, dim=1)
 
                 # Dempster-Shafer uncertainty for IPGP
@@ -102,10 +87,21 @@ def loop_over_dataloader(model, likelihood, dataloader):
 
     return scores, accuracies
 
-def get_ood_metrics(in_dataset: object, out_dataset: object, model: object, likelihood: object = None) -> object:  # , root="./"
+def get_ood_metrics(in_dataset: object, out_dataset: object, model: object, likelihood: object = None, feature_data: bool = True) -> object:  # , root="./"
     # return input_size, num_classes, train_dataset, val_dataset, test_dataset
-    _, _, _, _, in_dataset = get_dataset(in_dataset)  # , root=root
-    _, _, _, _, out_dataset = get_dataset(out_dataset)  # , root=root
+    # _, _, _, _, in_dataset = get_dataset(in_dataset)  # , root=root
+    # _, _, _, _, out_dataset = get_dataset(out_dataset)  # , root=root
+
+    # val + test
+    if feature_data:
+        _, _, _, val_in_dataset, in_dataset = get_feature_dataset(in_dataset)
+        _, _, _, val_out_dataset, out_dataset = get_feature_dataset(out_dataset)
+    else:
+        _, _, _, val_in_dataset, in_dataset = get_dataset(in_dataset)  # , root=root
+        _, _, _, val_out_dataset, out_dataset = get_dataset(out_dataset)  # , root=root
+
+    in_dataset = ConcatDataset([val_in_dataset, in_dataset])
+    out_dataset = ConcatDataset([val_out_dataset, out_dataset])
 
     dataloader, anomaly_targets = prepare_ood_datasets(in_dataset, out_dataset)
     scores, accuracies = loop_over_dataloader(model, likelihood, dataloader)
@@ -113,11 +109,13 @@ def get_ood_metrics(in_dataset: object, out_dataset: object, model: object, like
     accuracy = np.mean(accuracies[:len(in_dataset)])
 
     assert len(anomaly_targets) == len(scores), "Mismatch in lengths of anomaly_targets and scores"
+    print(f"length {len(in_dataset)} out of {len(anomaly_targets)}")
 
     auroc = roc_auc_score(anomaly_targets, scores)
     precision, recall, _ = precision_recall_curve(anomaly_targets, scores)
     aupr = auc(recall, precision)
     return accuracy, auroc, aupr
+
 
 def get_auroc_classification(data, model, likelihood=None):
     if isinstance(data, Dataset):

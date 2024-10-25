@@ -15,13 +15,14 @@ from gpytorch.mlls import VariationalELBO
 from gpytorch.likelihoods import SoftmaxLikelihood
 from due import dkl
 from due.wide_resnet import WideResNet
+from due.convnext import ConvNextTinyGP
 # from due.sngp import Laplace
 from lib.datasets import get_dataset
 from lib.evaluate_ood import get_ood_metrics
 from lib.utils import get_results_directory, Hyperparameters, set_seed,  calculate_and_save_statistics # plot_training_history, plot_OOD,
 from lib.evaluate_cp import conformal_evaluate, ConformalTrainingLoss, ConformalInefficiency # UncertaintyMetric
 from pathlib import Path
-from sngp_wrapper.covert_utils import replace_layer_with_gaussian # convert_to_sn_my,
+from sngp_wrapper.covert_utils import replace_layer_with_gaussian, convert_to_sn_my
 
 from torch.utils.data import DataLoader
 import csv
@@ -50,28 +51,22 @@ def main(hparams):
     # Save parameters
     hparams.save(results_dir / "hparams.json")
     
-    feature_extractor = WideResNet(
-        input_size,
-        hparams.spectral_conv,
-        hparams.spectral_bn,
-        dropout_rate=hparams.dropout_rate,
-        coeff=hparams.coeff,
-        n_power_iterations=hparams.n_power_iterations
-    )
+    feature_extractor = ConvNextTinyGP
         
     if hparams.sngp:
-        model = WideResNet(
-            input_size,
-            hparams.spectral_conv,
-            hparams.spectral_bn,
-            dropout_rate=hparams.dropout_rate,
-            coeff=hparams.coeff,
-            n_power_iterations=hparams.n_power_iterations,
-            num_classes=hparams.number_of_class,
-        )
+        # model = WideResNet(
+        #     input_size,
+        #     hparams.spectral_conv,
+        #     hparams.spectral_bn,
+        #     dropout_rate=hparams.dropout_rate,
+        #     coeff=hparams.coeff,
+        #     n_power_iterations=hparams.n_power_iterations,
+        #     num_classes=hparams.number_of_class,
+        # )
+        model = feature_extractor(num_classes=hparams.number_of_class)
 
-        # spec_norm_replace_list = ["Linear", "Conv2D"]
-        # spec_norm_bound = 9.
+        spec_norm_replace_list = ["Linear", "Conv2D"]
+        spec_norm_bound = 0.95
 
         GP_KWARGS = {
             'num_inducing': 2048,
@@ -90,7 +85,7 @@ def main(hparams):
         }
         
         # Enforcing Spectral-Normalization on each layer 
-        # model = convert_to_sn_my(model, spec_norm_replace_list, spec_norm_bound)
+        model.linear = convert_to_sn_my(model.linear, spec_norm_replace_list, spec_norm_bound)
         
         # Equipping the model with laplace approximation 
         replace_layer_with_gaussian(container=model, signature="linear", **GP_KWARGS)
@@ -104,6 +99,7 @@ def main(hparams):
         likelihood = None
         
     else:
+        feature_extractor = feature_extractor(num_classes=None)
         initial_inducing_points, initial_lengthscale = dkl.initial_values(
             train_dataset, feature_extractor, hparams.n_inducing_points )
         gp = dkl.GP(
@@ -121,16 +117,23 @@ def main(hparams):
         
     model = model.cuda()
     #### Note:
-    parameters = [ {"params": model.parameters() } ]
+    # parameters = [ {"params": model.parameters() } ]
+    if hparams.sngp:
+        parameters = [
+            {'params': model.feature_extractor.parameters(), 'lr': hparams.learning_rate * 0.1,
+             'weight_decay': hparams.weight_decay},
+            {'params': model.linear.parameters(), 'lr': hparams.learning_rate, 'weight_decay': hparams.weight_decay},
+        ]
+    else:
+        parameters = [{'params': model.parameters(), 'lr': hparams.learning_rate,
+                       'weight_decay': hparams.weight_decay}]
 
-    if not hparams.sngp:
-        parameters.append( {"params": likelihood.parameters()} )
-
-    optimizer = torch.optim.AdamW(
-        parameters,
-        lr=hparams.learning_rate,
-        weight_decay=hparams.weight_decay
-    )
+    # optimizer = torch.optim.AdamW(
+    #     parameters,
+    #     lr=hparams.learning_rate,
+    #     weight_decay=hparams.weight_decay
+    # )
+    optimizer = torch.optim.Adam(params=parameters)
 
     training_steps = len(train_dataset) // hparams.batch_size * hparams.epochs
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=training_steps)
@@ -322,26 +325,26 @@ def main(hparams):
             #     print(f"Failed to save model due to: {e}")
 
         
-        # # Save the best model based on the best OOD detection on val data (best_ood)
-        nonlocal best_auroc, best_aupr
-
-        if auroc >= best_auroc and aupr >= best_aupr:
-            best_auroc, best_aupr = auroc, aupr
-            best_model_state_ood = {
-                'model': model.state_dict(),
-                'optimizer': optimizer.state_dict(),
-                'epoch': trainer.state.epoch,
-                'likelihood': likelihood.state_dict() if not hparams.sngp else None,
-            }
-
-            model_saved_path = results_dir / "best_model_ood.pth"
-            # Ensure the results directory exists
-            results_dir.mkdir(parents=True, exist_ok=True)
-            # Debugging output
-            print("model_saved_path", model_saved_path)
-
-            torch.save(best_model_state_ood, model_saved_path)
-            print(f"Best model saved at epoch {trainer.state.epoch} with best_auroc {best_auroc:.4f} and best_aupr {best_aupr:.4f}")
+        # # # Save the best model based on the best OOD detection on val data (best_ood)
+        # nonlocal best_auroc, best_aupr
+        #
+        # if auroc >= best_auroc and aupr >= best_aupr:
+        #     best_auroc, best_aupr = auroc, aupr
+        #     best_model_state_ood = {
+        #         'model': model.state_dict(),
+        #         'optimizer': optimizer.state_dict(),
+        #         'epoch': trainer.state.epoch,
+        #         'likelihood': likelihood.state_dict() if not hparams.sngp else None,
+        #     }
+        #
+        #     model_saved_path = results_dir / "best_model_ood.pth"
+        #     # Ensure the results directory exists
+        #     results_dir.mkdir(parents=True, exist_ok=True)
+        #     # Debugging output
+        #     print("model_saved_path", model_saved_path)
+        #
+        #     torch.save(best_model_state_ood, model_saved_path)
+        #     print(f"Best model saved at epoch {trainer.state.epoch} with best_auroc {best_auroc:.4f} and best_aupr {best_aupr:.4f}")
 
         scheduler.step()
 
@@ -360,15 +363,15 @@ def main(hparams):
         likelihood.eval() if not hparams.sngp else None
 
         # ensuring that changes to the new object do not affect the original object
-        ood_model = copy.deepcopy(model)
-        ood_likelihood = copy.deepcopy(likelihood) if not hparams.sngp else None
-
-        best_model_state_ood = torch.load(results_dir / "best_model_ood.pth")
-        ood_model.load_state_dict(best_model_state_ood['model'], strict=False)
-        ood_likelihood.load_state_dict(best_model_state_ood['likelihood']) if not hparams.sngp else None
-
-        ood_model.eval()
-        ood_likelihood.eval() if not hparams.sngp else None
+        # ood_model = copy.deepcopy(model)
+        # ood_likelihood = copy.deepcopy(likelihood) if not hparams.sngp else None
+        #
+        # best_model_state_ood = torch.load(results_dir / "best_model_ood.pth")
+        # ood_model.load_state_dict(best_model_state_ood['model'], strict=False)
+        # ood_likelihood.load_state_dict(best_model_state_ood['likelihood']) if not hparams.sngp else None
+        #
+        # ood_model.eval()
+        # ood_likelihood.eval() if not hparams.sngp else None
 
         all_cal_smx = []
         all_cal_labels = []
@@ -446,9 +449,9 @@ def main(hparams):
 # Define a function to parse arguments
 def parse_arguments():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--learning_rate", type=float, default=0.001, help="Learning rate") # sngp = 0.05
-    parser.add_argument("--epochs", type=int, default=1, help="Number of epochs to train for")
-    parser.add_argument("--batch_size", type=int, default=64, help="Batch size to use for training")
+    parser.add_argument("--learning_rate", type=float, default=3e-4, help="Learning rate") # sngp = 0.05
+    parser.add_argument("--epochs", type=int, default=10, help="Number of epochs to train for")
+    parser.add_argument("--batch_size", type=int, default=32, help="Batch size to use for training")
     parser.add_argument("--number_of_class", type=int, default=4)
     parser.add_argument("--alpha", type=float, default=0.05, help="Conformal Rate" )
     parser.add_argument("--dataset", default="Brain_tumors", choices=["Brain_tumors", "Alzheimer",'CIFAR10', 'CIFAR100', "SVHN"])
@@ -474,7 +477,7 @@ def parse_arguments():
     
 def run_main(args):
 
-    seeds = [1] # [1, 7, 23, 42, 56]
+    seeds = [1, 7, 23, 42, 56]
     ### For the final results.csv file
     ### For the final results.csv file
     dict_list = []

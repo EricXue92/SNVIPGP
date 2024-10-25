@@ -1,32 +1,43 @@
 from datetime import datetime
 import json
 import pathlib
+from pathlib import Path
 import random
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
 import pandas as pd
+import csv
 import os
+from collections import defaultdict
 
-def calculate_and_save_statistics(file_name):
-    df = pd.read_csv(file_name)
-    # Calculate the mean and variance for each column
-    mean_values = round(df.mean(), 4)
-    variance_values = round(df.var(), 4)
+def repeat_experiment(args, seeds, main_fn):
+    #hparams = Hyperparameters(**vars(args))
+    result_dict = defaultdict(list)
+    tag_name = f"sngp{int(args.sngp)}_epoch{args.epochs}_dataset{args.dataset}.csv"
+    parent_name = "results_conformal" if args.conformal_training else "results_normal"
+    for seed in seeds:
+        set_seed(seed)
+        one_result = main_fn(args)
+        for k, v in one_result.items():
+            result_dict[k].append(v)
 
-    # Print the results
-    print(f"Mean of each column: \n{mean_values}")
-    print(f"\nVariance of each column: \n{variance_values}")
+    results_file_path = Path(f"{parent_name}/{tag_name}")
+    results_file_path.parent.mkdir(exist_ok=True)
 
-    # Optional: Save the mean and variance to another CSV file
-    tmp = file_name.split('.')[0]
-    mean_variance_file = f"{tmp}_output.csv"
+    summary_metrics = pd.DataFrame(result_dict)
+    statistic_metrics = summary_metrics.agg(["mean", "std"]).transpose()
+    statistic_metrics["mean-std"] = (statistic_metrics["mean"].round(4).astype(str) + "+-" +
+                                   statistic_metrics["std"].round(4).astype(str))
+    statistic_metrics = statistic_metrics.drop(columns=["mean", "std"]).transpose()
+    summary_metrics = pd.concat([summary_metrics, statistic_metrics])
+    if results_file_path.exists():
+        existing_data = pd.read_csv(results_file_path)
+        summary_metrics = pd.concat([existing_data, summary_metrics],
+                                 ignore_index=True)
+    summary_metrics.to_csv(results_file_path, index=False)
 
-    mean_variance_df = pd.DataFrame({'Mean': mean_values, 'Variance': variance_values})
-    mean_variance_df.to_csv(mean_variance_file)
-
-    print(f"\nMean and variance saved to {mean_variance_file}")
 
 def set_seed(seed):
     random.seed(seed)
@@ -70,18 +81,6 @@ def plot_OOD(plot_auroc, plot_aupr):
     plt.tight_layout()
     plt.savefig('OOD_process.pdf')
 
-
-# path = pathlib.Path("runs")
-# # Check if the path exists
-# if path.exists():
-#     print(f"The path {path} exists.")
-# else:
-#     print(f"The path {path} does not exist.")
-#     # Create the directory if it does not exist # 创建路径path.mkdir()
-#     path.mkdir()
-#     print(f"Directory {path} created.")
-
-# # Create a Path object for the "runs" directory
 def get_results_directory(name, stamp=True):
     # 2024-06-30-Sunday-20-22-46
     timestamp = datetime.now().strftime("%Y-%m-%d-%A-%H-%M-%S")

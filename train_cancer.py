@@ -401,7 +401,9 @@ def main(hparams):
 
         # After evaluation, concatenate all the accumulated outputs
         cal_smx = torch.cat(all_cal_smx, dim=0)
+
         cal_labels = torch.cat(all_cal_labels, dim=0)
+        print(f"cal_smx shape: {cal_smx.shape}, cal_labels shape: {cal_labels.shape}")
         
         metrics = evaluator.state.metrics
         test_accuracy = round(metrics["accuracy"], 3)

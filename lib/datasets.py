@@ -5,8 +5,13 @@ from torch.utils import data
 from torchvision import datasets, transforms
 from torch.utils.data import Dataset, ConcatDataset, random_split, DataLoader, Subset
 from sklearn.model_selection import train_test_split
+from torchvision.transforms import v2
+import glob
 
 NUM_WORKERS = os.cpu_count()
+
+IMAGENET_CONVNEXT_MEAN = [0.485, 0.456, 0.406]
+IMAGENET_CONVNEXT_STD = [0.229, 0.224, 0.225]
 
 def get_SVHN():
     input_size = 32
@@ -93,41 +98,25 @@ class TransformedDataset(Dataset):
             data = self.transform(data)
         return data, target
 
-# https://pytorch.org/tutorials/beginner/introyt/introyt1_tutorial.html
-# https://www.kaggle.com/datasets/thomasdubail/brain-tumors-256x256?resource=download
-# 3 * 256 * 256
-# 2476 310 310
+
 def get_Brain_tumors():
     image_path = "./data/Brain_tumors"
-
-    ### For get the training mean and std
-    # transform = transforms.Compose([
-    #     transforms.Resize((64, 64)),  # Resize images to input size
-    #     transforms.ToTensor(),  # Convert images to tensors
-    # ])
-
-    train_transform = transforms.Compose([
-        transforms.Resize([64,64]),
-        # randomly crops a 64x64 region from the image
-        transforms.RandomCrop(64, padding=4),
-        # randomly flips the image horizontally
-        transforms.RandomHorizontalFlip(),
-        # rotates the image randomly within a range of ±15 degrees
-        transforms.RandomRotation(degrees=15),
-        # converts a PIL Image or NumPy ndarray into a PyTorch tensor.
-        # scales the pixel values from a range of [0, 255] to [0.0, 1.0]
-        transforms.ToTensor(),
-        transforms.Normalize((0.2114, 0.2114, 0.2114), (0.1894, 0.1894, 0.1894) )
+    crop_pct = 224 / 236
+    size = int( 224 / crop_pct)
+    train_transform = v2.Compose([
+                    v2.Resize(size, interpolation=v2.InterpolationMode.BILINEAR),
+                    v2.CenterCrop(224),
+                    v2.ToTensor(),
+                    v2.Resize(64, interpolation=v2.InterpolationMode.BILINEAR),
+                    v2.Normalize(IMAGENET_CONVNEXT_MEAN, IMAGENET_CONVNEXT_STD),
+                ])
+    val_test_transform = v2.Compose([
+        v2.Resize(size, interpolation=v2.InterpolationMode.BILINEAR),
+        v2.CenterCrop(224),
+        v2.ToTensor(),
+        v2.Resize(64, interpolation=v2.InterpolationMode.BILINEAR),
+        v2.Normalize(IMAGENET_CONVNEXT_MEAN, IMAGENET_CONVNEXT_STD),
     ])
-
-    val_test_transform = transforms.Compose([
-        transforms.Resize([64,64]),
-        transforms.ToTensor(),
-        transforms.Normalize((0.2114, 0.2114, 0.2114), (0.1894, 0.1894, 0.1894) )
-    ])
-
-    ### For get the training mean and std
-    # data = datasets.ImageFolder(root=image_path, transform=transform)
 
     data = datasets.ImageFolder(root=image_path)
     input_size = 64
@@ -146,50 +135,49 @@ def get_Brain_tumors():
     val_dataset = TransformedDataset(Subset(data, val_indices), transform=val_test_transform)
     test_dataset = TransformedDataset(Subset(data, test_indices), transform=val_test_transform)
 
-    # x = torch.stack([sample[0] for sample in Subset(data, train_indices)])
-    # #get the mean of each channel
-    # mean = torch.mean(x, dim=(0,2,3))
-    # std = torch.std(x, dim=(0,2,3))
-    # print(f"mean : {mean}")
-    # print(f"std : {std}")
 
     return input_size, num_classes, train_dataset, val_dataset, test_dataset
 
 
+def get_tumors_feature(image_path: str = "./data/Brain_tumors"):
 
+    full_dataset = FeatureDataset(image_path)
+    input_size = 768
+    num_classes = 4
 
-## https://www.kaggle.com/datasets/uraninjo/augmented-alzheimer-mri-dataset
-# 3 * 208 * 176
-# 5120 640 640
+    targets = [full_dataset[i][1] for i in range(len(full_dataset))]
+
+    train_indices, temp_indices, _, temp_labels = train_test_split(
+        range(len(full_dataset)), targets, test_size=0.2, stratify=targets, random_state=23
+    )
+    val_indices, test_indices = train_test_split(
+        temp_indices, test_size=0.5, stratify=temp_labels, random_state=23
+    )
+
+    train_dataset = TransformedDataset(Subset(full_dataset, train_indices), transform=None)
+    val_dataset = TransformedDataset(Subset(full_dataset, val_indices), transform=None)
+    test_dataset = TransformedDataset(Subset(full_dataset, test_indices), transform=None)
+
+    return input_size, num_classes, train_dataset, val_dataset, test_dataset
+
 def get_Alzheimer():
     image_path = "./data/Alzheimer"
-    # ### For get the training mean and std
-    # transform = transforms.Compose([
-    #     transforms.Resize((64, 64)),  # Resize images to input size
-    #     transforms.ToTensor(),  # Convert images to tensors
-    # ])
-    # normalize = transforms.Normalize((0.2815, 0.2815, 0.2815),
-    #                                  (0.3206, 0.3206, 0.3206) )
-
-    normalize = transforms.Normalize((0.2819, 0.2819, 0.2819),
-                                     (0.3210, 0.3210, 0.3210) )
-
-    train_transform = transforms.Compose(
-        [
-            transforms.Resize([64,64]),
-            transforms.RandomCrop(64, padding=4),
-            transforms.RandomHorizontalFlip(),
-            transforms.RandomRotation(degrees=15),
-            transforms.ToTensor(),
-            normalize
-        ])
-    val_test_transform = transforms.Compose([
-        transforms.Resize([64,64]),
-        transforms.ToTensor(),
-        normalize
+    crop_pct = 224 / 236
+    size = int( 224 / crop_pct)
+    train_transform = v2.Compose([
+                    v2.Resize(size, interpolation=v2.InterpolationMode.BILINEAR),
+                    v2.CenterCrop(224),
+                    v2.ToTensor(),
+                    v2.Resize(64, interpolation=v2.InterpolationMode.BILINEAR),
+                    v2.Normalize(IMAGENET_CONVNEXT_MEAN, IMAGENET_CONVNEXT_STD),
+                ])
+    val_test_transform = v2.Compose([
+        v2.Resize(size, interpolation=v2.InterpolationMode.BILINEAR),
+        v2.CenterCrop(224),
+        v2.ToTensor(),
+        v2.Resize(64, interpolation=v2.InterpolationMode.BILINEAR),
+        v2.Normalize(IMAGENET_CONVNEXT_MEAN, IMAGENET_CONVNEXT_STD),
     ])
-
-    #data = datasets.ImageFolder(root=image_path, transform=transform)
     data = datasets.ImageFolder(root=image_path)
     input_size = 64
     num_classes = 4
@@ -205,15 +193,30 @@ def get_Alzheimer():
     val_dataset = TransformedDataset(Subset(data, val_indices), transform=val_test_transform)
     test_dataset = TransformedDataset(Subset(data, test_indices), transform=val_test_transform)
 
-    # x = torch.stack([sample[0] for sample in Subset(data, train_indices)])
-    # #get the mean of each channel
-    # mean = torch.mean(x, dim=(0,2,3))
-    # std = torch.std(x, dim=(0,2,3))
-    # print(f"mean : {mean}")
-    # print(f"std : {std}")
-
     return input_size, num_classes, train_dataset, val_dataset, test_dataset
 
+class FeatureDataset(Dataset):
+    def __init__(self, feature_dir):
+        # Initialize the dataset by loading all feature file paths
+        self.feature_paths = glob.glob(os.path.join(feature_dir, '**/*.pt'), recursive=True)
+
+        if "Brain_tumors" in feature_dir:
+            self.label_map = {"glioma_tumor":0, "meningioma_tumor": 1, "normal": 2, "pituitary_tumor": 3}
+        elif "Alzheimer" in feature_dir:
+            self.label_map = {"MildDemented":0, "ModerateDemented": 1, "NonDemented": 2, "VeryMildDemented": 3}
+        else:
+            raise ValueError("Unknown dataset")
+
+    def __len__(self):
+        return len(self.feature_paths)
+
+    def __getitem__(self, idx):
+        feature_path = self.feature_paths[idx]
+        feature = torch.load(feature_path).float()
+        # os.path.dirname: Return the directory name of pathname path.
+        # os.path.basename: retrieves the last part of a path
+        label = os.path.basename(os.path.dirname(feature_path))
+        return feature, self.label_map[label]
 
 all_datasets = {
     "SVHN": get_SVHN,
@@ -222,6 +225,14 @@ all_datasets = {
     "Brain_tumors": get_Brain_tumors,
     "Alzheimer": get_Alzheimer
 }
+
+all_feature_datasets = {
+    "Brain_tumors": get_tumors_feature(image_path="./data_feature/Brain_tumors"),
+    "Alzheimer": get_tumors_feature(image_path="./data_feature/Alzheimer"),
+}
+
+def get_feature_dataset(dataset):
+    return all_feature_datasets[dataset]
 
 def get_dataset(dataset):  # root="./"
     return all_datasets[dataset]()
@@ -240,5 +251,10 @@ def get_dataloaders(dataset, train_batch_size=64):  # 128
         test_dataset, batch_size=train_batch_size, shuffle=False, **kwargs  # 1000
     )
     return train_loader, val_loader, test_loader, input_size, num_classes
+
+# if __name__ == "__main__":
+#     feauture_f = FeatureDataset('../data_feature/Brain_tumors')
+#     print("len(feauture_f):", len(feauture_f))
+#     print("feauture_f[0]:", feauture_f[0][0].shape, feauture_f[0][1])
 
 
