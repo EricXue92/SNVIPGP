@@ -8,14 +8,14 @@ from due import dkl
 from due.convnext import ConvNextTinyGP, SimpleMLP, SimpleConvNet
 from lib.datasets import get_dataset, get_feature_dataset
 from lib.evaluate_ood import get_ood_metrics
-from lib.utils import get_results_directory, Hyperparameters, repeat_experiment
+from lib.utils import get_results_directory, Hyperparameters, repeat_experiment, accuracy_fn
 from lib.evaluate_cp import conformal_evaluate, ConformalTrainingLoss, tps
 from sngp_wrapper.covert_utils import replace_layer_with_gaussian, convert_to_sn_my
 from torch.utils.data import DataLoader
-from lib.helper_functions import accuracy_fn
 import operator
 
 def main(args):
+
     results_dir = get_results_directory(args.output_dir)
     print(f"save to results_dir {results_dir}")
     writer = SummaryWriter(log_dir=str(results_dir))
@@ -151,7 +151,6 @@ def main(args):
         model.eval()
         if not args.sngp:
             likelihood.eval()
-
         prob_list, target_list = [], []
         with torch.no_grad():
             for X, y in data_loader:
@@ -167,10 +166,8 @@ def main(args):
 
                 prob_list.append(y_pred)
                 target_list.append(y)
-
                 _, y_pred = y_pred.max(1)
-                test_acc += accuracy_fn(y_true=y,
-                                        y_pred=y_pred)
+                test_acc += accuracy_fn(y_true=y, y_pred=y_pred)
         test_loss /= len(data_loader)
         test_acc /= len(data_loader)
 
@@ -178,18 +175,18 @@ def main(args):
 
         prob = torch.cat(prob_list, dim=0)
         target = torch.cat(target_list, dim=0)
-
         return test_loss, test_acc, prob, target
 
     for epoch in range(args.epochs):
         model.classifier.reset_covariance_matrix() if args.sngp else None
-        print(f"\nEpoch: {epoch + 1}/{args.epochs}")
+        print(f"\nEpoch: {epoch + 1}/{args.epochs}\n {'-' * 10}")
         train(model, train_loader, loss_fn, optimizer, accuracy_fn, device)
         val_loss, val_acc, val_smx, val_labels = test("Validation", model, val_loader, accuracy_fn, device)
         _, auroc, aupr = get_ood_metrics(args.dataset, "Alzheimer", model, likelihood, feature_data=True)
         print(f"OoD Metrics - AUROC: {auroc:.4f} | AUPR: {aupr:.4f}")
         _, coverage, inefficiency = tps(cal_smx=val_smx, val_smx=val_smx, cal_labels=val_labels, val_labels=val_labels,
                                   n=len(val_labels), alpha=args.alpha)
+
         def save_best_metric(metric_name, metric_value, best_metric):
             compare_fn = operator.gt if metric_name == "auroc" else operator.lt
             if compare_fn(metric_value, best_metric):
@@ -252,7 +249,7 @@ def parse_arguments():
     parser.add_argument( "--adaptive_conformal", action="store_true", help="adaptive conformal")
     parser.add_argument("--no_spectral_bn", action="store_false", dest="spectral_bn", help="Don't use spectral normalization on the batch normalization layers",)
     #parser.add_argument("--seed", type=int, default=42, help="Seed to use for training")
-    parser.add_argument("--coeff", type=float, default=3., help="Spectral normalization coefficient")
+    parser.add_argument("--coeff", type=float, default=0.95, help="Spectral normalization coefficient")
     parser.add_argument("--n_power_iterations", default=1, type=int, help="Number of power iterations")
     parser.add_argument("--output_dir", default="./default", type=str, help="Specify output directory")
     args = parser.parse_args()

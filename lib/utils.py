@@ -38,7 +38,6 @@ def repeat_experiment(args, seeds, main_fn):
                                  ignore_index=True)
     summary_metrics.to_csv(results_file_path, index=False)
 
-
 def set_seed(seed):
     random.seed(seed)
     os.environ['PYTHONHASHSEED'] = str(seed)
@@ -81,16 +80,17 @@ def plot_OOD(plot_auroc, plot_aupr):
     plt.tight_layout()
     plt.savefig('OOD_process.pdf')
 
+def accuracy_fn(y_true, y_pred):
+    correct = torch.eq(y_true, y_pred).sum().item()
+    acc = (correct / len(y_pred))
+    return acc
+
 def get_results_directory(name, stamp=True):
-    # 2024-06-30-Sunday-20-22-46
     timestamp = datetime.now().strftime("%Y-%m-%d-%A-%H-%M-%S")
-    # Create a Path object for the "runs" directory
     results_dir = pathlib.Path("runs")
     if name is not None:
         results_dir = results_dir / name
-    # "runs/2024-06-30-Sunday-20-22-46"
     results_dir = results_dir / timestamp if stamp else results_dir
-    # Create the directory and any missing parent directories
     results_dir.mkdir(parents=True)
     return results_dir
 

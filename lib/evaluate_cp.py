@@ -33,11 +33,10 @@ class ConformalTrainingLoss(nn.Module):
         if self.sngp_flag:
             fn_loss = F.cross_entropy(probabilities, y)
             total_loss = fn_loss + size_loss
-            print("total loss", size_loss.item() + fn_loss.item(), "size loss", size_loss.item(), "ce loss",
-                  fn_loss.item())
+            print(f"Total loss : {(size_loss.item() + fn_loss.item()):.4f} | Size loss: {size_loss.item():.4f} | Ce loss : {fn_loss.item():.4f}")
             return total_loss
         else:
-            print(f"size loss is {size_loss}")
+            print(f"size loss : {size_loss.item():.4f}")
             return size_loss
 
 class ConformalInefficiency(Metric):
@@ -75,7 +74,6 @@ def tps(cal_smx, val_smx, cal_labels, val_labels, n, alpha):
     coverage = prediction_sets[torch.arange(prediction_sets.shape[0]), val_labels].float().mean()
     # efficiency -- the size of the prediction set
     efficiency = torch.sum(prediction_sets) / len(prediction_sets)
-
     prediction_sets = prediction_sets.cpu()
     return prediction_sets.numpy(), coverage.item(), efficiency.item()
 
@@ -101,15 +99,12 @@ def adaptive_tps(cal_smx, val_smx, cal_labels, val_labels, n, alpha):
 
 
 def get_multiple_permutations(permutation_size: int = 500, num_permutations: int = 5, permutation_data_dir: str = None):
-    # # Ensure the directory exists
     if permutation_data_dir is None:
         raise ValueError("permutation_data_dir must be specified")
     if not os.path.exists(permutation_data_dir):
         os.makedirs(permutation_data_dir)
-    # Path to the .npz file
     path_name = os.path.join(permutation_data_dir, f"{permutation_size}_{num_permutations}.npz")
     if not os.path.exists(path_name):
-        # # Generate permutations
         permutations = [np.random.permutation(permutation_size) for _ in range(num_permutations)]
         np.savez(path_name, *permutations)
         return permutations
@@ -117,7 +112,6 @@ def get_multiple_permutations(permutation_size: int = 500, num_permutations: int
         data = np.load(path_name)
         # When np.savez is used with unnamed arguments, it saves arrays with default keys like arr_0, arr_1, etc.
         return [data[f'arr_{i}'] for i in range(num_permutations)]
-
 
 def conformal_evaluate(model, likelihood, dataset, adaptive_flag, alpha):
     if dataset == 'CIFAR10':
