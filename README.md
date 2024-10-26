@@ -1,3 +1,1 @@
-# DUE and SNGP With Conformal Training for OOD Detection and Risk managment 
-
-
+# Inducing Point Gaussian Process with conformal training for out-of-distribution detection and conformal prediction 
