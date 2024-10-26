@@ -29,8 +29,8 @@ import csv
 # For context see: https://github.com/pytorch/pytorch/issues/47908
 NUM_WORKERS = os.cpu_count()
 
-# import wandb
-# from functools import partial
+import wandb
+from functools import partial
 
 # https://datascience.stackexchange.com/questions/31113/validation-showing-huge-fluctuations-what-could-be-the-cause
 
@@ -488,6 +488,7 @@ def run_main(args):
 
     # run = wandb.init()
     hparams = Hyperparameters(**vars(args))
+
     start_event = torch.cuda.Event(enable_timing=True)
     end_event = torch.cuda.Event(enable_timing=True)
     start_event.record()
@@ -529,38 +530,39 @@ if __name__ == "__main__":
 
     args = parse_arguments()
 
-    #### Run without wandb
-    run_main(args)
+    # #### Run without wandb
+    # run_main(args)
 
-    # wandb.login()
-    # Step 1: Define a sweep
-    # sweep_config = {'method': 'grid'}
-    # metric = {'name': 'loss',
-    #          'goal': 'minimize' }
-    # sweep_config['metric'] = metric
-    #
-    # ## sngp
-    # parameters = {
-    #               'dropout_rate': {'values': [0.3] },
+    wandb.login()
+
+    sweep_config = {'method': 'grid'}
+    metric = {'name': 'loss',
+             'goal': 'minimize' }
+    sweep_config['metric'] = metric
+
+    ## sngp
+    parameters = {
+                  'dropout_rate': {'values': [0.3] },
+                  'learning_rate': {'values': [0.001] },
+                  'seed': {'values': [1, 7, 23, 42, 56] },
+                  'epochs': {'values': [100, 150, 200] },
+                 }
+
+    # parameters = {'dropout_rate': {'values': [0.3] },
     #               'learning_rate': {'values': [0.001] },
     #               'seed': {'values': [1, 7, 23, 42, 56] },
-    #               'epochs': {'values': [100, 150, 200] },
+    #               'epochs': {'values': [50, 100, 200] },
+    #      # 'beta':{"values":[0.01]},
+    #      # 'temperature': {"values": [1]},
     #              }
-    #
-    # # parameters = {'dropout_rate': {'values': [0.3] },
-    # #               'learning_rate': {'values': [0.001] },
-    # #               'seed': {'values': [1, 7, 23, 42, 56] },
-    # #               'epochs': {'values': [50, 100, 200] },
-    # #      # 'beta':{"values":[0.01]},
-    # #      # 'temperature': {"values": [1]},
-    # #              }
-    # # ## Inducing Points
-    #
-    # sweep_config['parameters'] = parameters
-    # ### Step 2: Initialize the Sweep
-    # sweep_id = wandb.sweep(sweep=sweep_config, project="SNGP-5-TIMES")
-    # ###Step 4: Activate sweep agents
-    # wandb.agent(sweep_id, function=partial(run_main, args=args) , count=15)
+    # ## Inducing Points
+
+    sweep_config['parameters'] = parameters
+    ### Step 2: Initialize the Sweep
+    sweep_id = wandb.sweep(sweep=sweep_config, project="SNGP-5-TIMES")
+
+    ###Step 4: Activate sweep agents
+    wandb.agent(sweep_id, function=partial(run_main, args=args) , count=15)
 
 
 

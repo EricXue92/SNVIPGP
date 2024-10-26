@@ -6,17 +6,19 @@ import random
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
-from pathlib import Path
-import pandas as pd
-import csv
 import os
+import wandb
+from pathlib import Path
 from collections import defaultdict
+import pandas as pd
 
 def repeat_experiment(args, seeds, main_fn):
-    #hparams = Hyperparameters(**vars(args))
+    run = wandb.init()
+
     result_dict = defaultdict(list)
     tag_name = f"sngp{int(args.sngp)}_epoch{args.epochs}_dataset{args.dataset}.csv"
     parent_name = "results_conformal" if args.conformal_training else "results_normal"
+
     for seed in seeds:
         set_seed(seed)
         one_result = main_fn(args)
@@ -29,14 +31,16 @@ def repeat_experiment(args, seeds, main_fn):
     summary_metrics = pd.DataFrame(result_dict)
     statistic_metrics = summary_metrics.agg(["mean", "std"]).transpose()
     statistic_metrics["mean-std"] = (statistic_metrics["mean"].round(4).astype(str) + "+-" +
-                                   statistic_metrics["std"].round(4).astype(str))
+                                     statistic_metrics["std"].round(4).astype(str))
     statistic_metrics = statistic_metrics.drop(columns=["mean", "std"]).transpose()
     summary_metrics = pd.concat([summary_metrics, statistic_metrics])
     if results_file_path.exists():
         existing_data = pd.read_csv(results_file_path)
         summary_metrics = pd.concat([existing_data, summary_metrics],
-                                 ignore_index=True)
+                                    ignore_index=True)
     summary_metrics.to_csv(results_file_path, index=False)
+
+    wandb.finish()
 
 def set_seed(seed):
     random.seed(seed)

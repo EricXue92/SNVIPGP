@@ -8,19 +8,32 @@ from due import dkl
 from due.convnext import ConvNextTinyGP, SimpleMLP, SimpleConvNet
 from lib.datasets import get_dataset, get_feature_dataset
 from lib.evaluate_ood import get_ood_metrics
-from lib.utils import get_results_directory, Hyperparameters, repeat_experiment, accuracy_fn
+from lib.utils import get_results_directory, Hyperparameters, accuracy_fn, set_seed, repeat_experiment
 from lib.evaluate_cp import conformal_evaluate, ConformalTrainingLoss, tps
 from sngp_wrapper.covert_utils import replace_layer_with_gaussian, convert_to_sn_my
 from torch.utils.data import DataLoader
+
 import operator
+import os
+
+os.environ["CUDA_VISIBLE_DEVICES"]="0"
+
+import wandb
+from functools import partial
 
 def main(args):
 
     results_dir = get_results_directory(args.output_dir)
     print(f"save to results_dir {results_dir}")
+
+    args.temperature = wandb.config.temperature
+    args.beta = wandb.config.beta
+    args.size_loss_form = wandb.config.size_loss_form
+
     writer = SummaryWriter(log_dir=str(results_dir))
     ds = get_feature_dataset(args.dataset)
     input_size, num_classes, train_dataset, val_dataset, test_dataset = ds
+
     if args.n_inducing_points is None:
         args.n_inducing_points = num_classes
     print(f"Training with {args}")
@@ -50,7 +63,7 @@ def main(args):
 
         if args.conformal_training:
             loss_fn = ConformalTrainingLoss(alpha=args.alpha, beta=args.beta,
-                                            temperature=args.temperature, sngp_flag=True)
+                                            temperature=args.temperature, sngp_flag=True, args=args)
         else:
             loss_fn = F.cross_entropy
         likelihood = None
@@ -116,7 +129,7 @@ def main(args):
 
             if args.conformal_training and not args.sngp:
                 CP_size_fn = ConformalTrainingLoss(alpha=args.alpha, beta=args.beta,
-                                                   temperature=args.temperature, sngp_flag=False)
+                                                   temperature=args.temperature, sngp_flag=False, args=args)
                 loss_cn = loss_fn(y_pred, y)
 
                 y_temp = y_pred.to_data_independent_dist()
@@ -227,19 +240,23 @@ def main(args):
     coverage_mean, ineff_list = conformal_evaluate(model, likelihood, dataset=args.dataset,
                                                    adaptive_flag=args.adaptive_conformal, alpha=args.alpha)
     result["coverage_mean"], result["ineff_list"] = coverage_mean, ineff_list
+
+    wandb.log({"epochs": args.epochs, "test_loss": test_loss, "test_Acc": test_acc, "test_auroc": auroc, "test_aupr": aupr,
+               "test_ineff":inefficiency, "avg_coverage":coverage_mean, "ineff_list":ineff_list})
+
     writer.close()
     return result
 
 def parse_arguments():
     parser = argparse.ArgumentParser()
     parser.add_argument("--learning_rate", type=float, default=3e-3, help="Learning rate") # sngp = 0.05
-    parser.add_argument("--epochs", type=int, default=2, help="Number of epochs to train for")
+    parser.add_argument("--epochs", type=int, default=1, help="Number of epochs to train for")
     parser.add_argument("--batch_size", type=int, default=32, help="Batch size to use for training")
     parser.add_argument("--number_of_class", type=int, default=4)
     parser.add_argument("--alpha", type=float, default=0.05, help="Conformal Rate" )
     parser.add_argument("--dataset", default="Brain_tumors", choices=["Brain_tumors", "Alzheimer",'CIFAR10', 'CIFAR100', "SVHN"])
     parser.add_argument("--n_inducing_points", type=int, default=12, help="Number of inducing points" ) # 12
-    parser.add_argument("--beta", type=int, default=0.1, help="Weight for conformal training loss")
+    parser.add_argument("--beta", type=int, default=0.01, help="Weight for conformal training loss")
     parser.add_argument("--temperature", type=int, default=0.1, help="Temperature for conformal training loss")
     parser.add_argument("--sngp", action="store_true", help="Use SNGP (RFF and Laplace) instead of a DUE (sparse GP)")
     parser.add_argument("--conformal_training", action="store_true", help="conformal training or not" )
@@ -252,14 +269,36 @@ def parse_arguments():
     parser.add_argument("--coeff", type=float, default=0.95, help="Spectral normalization coefficient")
     parser.add_argument("--n_power_iterations", default=1, type=int, help="Number of power iterations")
     parser.add_argument("--output_dir", default="./default", type=str, help="Specify output directory")
+    parser.add_argument("--size_loss_form", default="identity", type=str, help="identity or log")
     args = parser.parse_args()
     return args
 
+
 if __name__ == "__main__":
-    device = "cuda" if torch.cuda.is_available() else "cpu"
     args = parse_arguments()
-    seeds = [1, 23, 42, 202, 2024]
-    repeat_experiment(args, seeds=seeds, main_fn=main)
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    seeds = [23] # [1, 23, 42, 202, 2024]
+
+    #repeat_experiment(args, seeds, main)
+
+    wandb.login()
+
+    # Step 1: Define a sweep
+    sweep_config = {
+        'method': 'grid',
+        'metric': {'name': 'loss', 'goal': 'minimize'},
+        'parameters': {
+            'beta': {"values": [0.005, 0.1, 0.05, 0.5]},
+            'temperature': {"values": [0.01, 0.1, 1]},
+            'size_loss_form': {'values': ["identity", "log"]},
+        }
+    }
+    project_name = "sngp" if args.sngp else "ipgp"
+    sweep_id = wandb.sweep(sweep=sweep_config, project=project_name)
+    wandb.agent(sweep_id, function=partial(repeat_experiment, args, seeds, main), count=24)
+
+
+
 
 
 

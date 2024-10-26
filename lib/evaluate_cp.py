@@ -12,12 +12,13 @@ from torch.utils.data import Dataset, DataLoader
 NUM_WORKERS = os.cpu_count()
 
 class ConformalTrainingLoss(nn.Module):
-    def __init__(self, alpha, beta, temperature, sngp_flag):
+    def __init__(self, alpha, beta, temperature, sngp_flag, args):
         super().__init__()
         self.alpha = alpha
         self.beta = beta
         self.temperature = temperature
         self.sngp_flag = sngp_flag
+        self.args = args
 
     def forward(self, probabilities, y):
         # probabilities = torch.log(probabilities)
@@ -26,8 +27,15 @@ class ConformalTrainingLoss(nn.Module):
         in_set_prob = F.sigmoid((probabilities - tau) / self.temperature)
         # Clamping: Ensures that the result is not less than 0, preventing negative values after subtraction
         ### [ont] important notes 2: as we have relative small num of classes, therefore, consider remove the torch.log
-        # size_loss = torch.log(torch.clamp(in_set_prob.sum(axis=1) - 1, min=0).mean(axis=0))
-        size_loss = torch.clamp(in_set_prob.sum(dim=1) - 1, min=0).mean(dim=0)
+        #
+        if self.args.size_loss_form == 'log':
+            size_loss = torch.log( torch.clamp(in_set_prob.sum(dim=1), min=1).mean(dim=0) )
+
+        elif self.args.size_loss_form == 'identity':
+            size_loss = torch.clamp(in_set_prob.sum(dim=1) - 1, min=0).mean(dim=0)
+
+        else:
+            raise ValueError("Invalid size loss form")
         size_loss = self.beta * size_loss
 
         if self.sngp_flag:
@@ -38,26 +46,6 @@ class ConformalTrainingLoss(nn.Module):
         else:
             print(f"size loss : {size_loss.item():.4f}")
             return size_loss
-
-class ConformalInefficiency(Metric):
-    def __init__(self, alpha=0.05, output_transform=lambda x: x):
-        self.cal_smx = None
-        self.cal_labels = None
-        self.alpha = alpha
-        super(ConformalInefficiency, self).__init__(output_transform=output_transform)
-
-    def reset(self):
-        self.eff = 0
-
-    def update(self, output):
-        val_smx, val_labels = output
-        n = len(val_smx)
-        cal_scores = 1 - self.cal_smx[torch.arange(n), self.cal_labels]
-        q_level = np.ceil((n + 1) * (1 - self.alpha)) / n
-        qhat = torch.quantile(cal_scores, q_level, interpolation='midpoint')
-        prediction_sets = val_smx >= (1 - qhat)
-
-        self.eff = torch.sum(prediction_sets) / len(prediction_sets)
 
     def compute(self):
         return self.eff
@@ -180,11 +168,12 @@ def conformal_evaluate(model, likelihood, dataset, adaptive_flag, alpha):
                     test_prediction_list.append(output.cpu())
             test_label_list.append(target)
 
-        val_prediction_list, test_prediction_list = torch.cat(val_prediction_list, axis=0), torch.cat(test_prediction_list, axis=0)
-        val_label_list, test_label_list = torch.cat(val_label_list, axis=0), torch.cat(test_label_list, axis=0)
+        val_prediction_list, test_prediction_list = torch.cat(val_prediction_list, dim=0), torch.cat(test_prediction_list, dim=0)
+        val_label_list, test_label_list = torch.cat(val_label_list, dim=0), torch.cat(test_label_list, dim=0)
 
-        combined_prediction_tensor = torch.cat([val_prediction_list, test_prediction_list], axis=0).cpu()
-        combined_prediction_label = torch.cat([val_label_list, test_label_list], axis=0).cpu()
+        combined_prediction_tensor = torch.cat([val_prediction_list, test_prediction_list], dim=0).cpu()
+        combined_prediction_label = torch.cat([val_label_list, test_label_list], dim=0).cpu()
+
         print(f"combined accuracy {torch.argmax(combined_prediction_tensor, dim=1).eq(combined_prediction_label).float().mean().item():.4f}")
 
         repeated_times = 100
