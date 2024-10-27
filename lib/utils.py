@@ -13,7 +13,7 @@ from collections import defaultdict
 import pandas as pd
 
 def repeat_experiment(args, seeds, main_fn):
-    run = wandb.init()
+    # run = wandb.init()
 
     result_dict = defaultdict(list)
     tag_name = f"sngp{int(args.sngp)}_epoch{args.epochs}_dataset{args.dataset}.csv"
@@ -40,7 +40,7 @@ def repeat_experiment(args, seeds, main_fn):
                                     ignore_index=True)
     summary_metrics.to_csv(results_file_path, index=False)
 
-    wandb.finish()
+    # wandb.finish()
 
 def set_seed(seed):
     random.seed(seed)
@@ -168,7 +168,6 @@ class Hyperparameters:
     # provides a readable string representation of the hyperparameters in JSON format
     def __str__(self):
         return f"Hyperparameters:\n {self.to_json()}"
-
 
 ''' 
 # Create hyperparameters from a dictionary

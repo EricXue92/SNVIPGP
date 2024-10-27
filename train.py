@@ -26,9 +26,9 @@ def main(args):
     results_dir = get_results_directory(args.output_dir)
     print(f"save to results_dir {results_dir}")
 
-    args.temperature = wandb.config.temperature
-    args.beta = wandb.config.beta
-    args.size_loss_form = wandb.config.size_loss_form
+    # args.temperature = wandb.config.temperature
+    # args.beta = wandb.config.beta
+    # args.size_loss_form = wandb.config.size_loss_form
 
     writer = SummaryWriter(log_dir=str(results_dir))
     ds = get_feature_dataset(args.dataset)
@@ -241,8 +241,8 @@ def main(args):
                                                    adaptive_flag=args.adaptive_conformal, alpha=args.alpha)
     result["coverage_mean"], result["ineff_list"] = coverage_mean, ineff_list
 
-    wandb.log({"epochs": args.epochs, "test_loss": test_loss, "test_Acc": test_acc, "test_auroc": auroc, "test_aupr": aupr,
-               "test_ineff":inefficiency, "avg_coverage":coverage_mean, "ineff_list":ineff_list})
+    # wandb.log({"epochs": args.epochs, "test_loss": test_loss, "test_Acc": test_acc, "test_auroc": auroc, "test_aupr": aupr,
+    #            "test_ineff":inefficiency, "avg_coverage":coverage_mean, "ineff_list":ineff_list})
 
     writer.close()
     return result
@@ -256,8 +256,8 @@ def parse_arguments():
     parser.add_argument("--alpha", type=float, default=0.05, help="Conformal Rate" )
     parser.add_argument("--dataset", default="Brain_tumors", choices=["Brain_tumors", "Alzheimer",'CIFAR10', 'CIFAR100', "SVHN"])
     parser.add_argument("--n_inducing_points", type=int, default=12, help="Number of inducing points" ) # 12
-    parser.add_argument("--beta", type=int, default=0.01, help="Weight for conformal training loss")
-    parser.add_argument("--temperature", type=int, default=0.1, help="Temperature for conformal training loss")
+    parser.add_argument("--beta", type=float, default=0.1, help="Weight for conformal training loss")
+    parser.add_argument("--temperature", type=float, default=0.01, help="Temperature for conformal training loss")
     parser.add_argument("--sngp", action="store_true", help="Use SNGP (RFF and Laplace) instead of a DUE (sparse GP)")
     parser.add_argument("--conformal_training", action="store_true", help="conformal training or not" )
     parser.add_argument("--weight_decay", type=float, default=1e-4, help="Weight decay") # 5e-4
@@ -274,28 +274,30 @@ def parse_arguments():
     return args
 
 
+# IPGP: BETA: 0.1, TEMPERATURE: 0.01, EPOCHS: 40, identity
+# SNGP: BETA: 0.1 - 0.005, TEMPERATURE: 0.01 - 1, EPOCHS: 30-50, log
+
 if __name__ == "__main__":
     args = parse_arguments()
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    seeds = [23] # [1, 23, 42, 202, 2024]
+    seeds = [1, 23, 42, 202, 2024]
 
-    #repeat_experiment(args, seeds, main)
+    repeat_experiment(args, seeds, main)
 
-    wandb.login()
-
-    # Step 1: Define a sweep
-    sweep_config = {
-        'method': 'grid',
-        'metric': {'name': 'loss', 'goal': 'minimize'},
-        'parameters': {
-            'beta': {"values": [0.005, 0.1, 0.05, 0.5]},
-            'temperature': {"values": [0.01, 0.1, 1]},
-            'size_loss_form': {'values': ["identity", "log"]},
-        }
-    }
-    project_name = "sngp" if args.sngp else "ipgp"
-    sweep_id = wandb.sweep(sweep=sweep_config, project=project_name)
-    wandb.agent(sweep_id, function=partial(repeat_experiment, args, seeds, main), count=24)
+    # wandb.login()
+    # # Step 1: Define a sweep
+    # sweep_config = {
+    #     'method': 'grid',
+    #     'metric': {'name': 'loss', 'goal': 'minimize'},
+    #     'parameters': {
+    #         'beta': {"values": [0.005, 0.1, 0.05, 0.5]},
+    #         'temperature': {"values": [0.01, 0.1, 1]},
+    #         'size_loss_form': {'values': ["identity", "log"]},
+    #     }
+    # }
+    # project_name = "sngp" if args.sngp else "ipgp"
+    # sweep_id = wandb.sweep(sweep=sweep_config, project=project_name)
+    # wandb.agent(sweep_id, function=partial(repeat_experiment, args, seeds, main), count=24)
 
 
 

@@ -3,27 +3,33 @@ import torchvision
 import torch.nn.functional as F
 
 class ConvNextTinyGP(nn.Module):
-    def __init__(self):
+    def __init__(self, num_classes: int):
         super(ConvNextTinyGP, self).__init__()
-        feature_extractor = torchvision.models.convnext_tiny(weights="ConvNeXt_Tiny_Weights.IMAGENET1K_V1")
-        self.feature_extractor = feature_extractor
+        self.feature_extractor = torchvision.models.convnext_tiny(weights="ConvNeXt_Tiny_Weights.IMAGENET1K_V1")
+        # Replace the classifier with nn.Identity to keep the features unchanged
+        self.feature_extractor.classifier = nn.Identity()
         self.flatten = nn.Flatten(start_dim=1, end_dim=-1)
-        # feature_extractor.classifier = nn.Identity()
-        # self.num_classes = num_classes
-        # if self.num_classes:
-        #     self.classifier = nn.Linear(768, num_classes) # please determine 768 by the classifier/head of the model
+        self.num_classes = num_classes
+        if self.num_classes is not None:
+            self.classifier = nn.Linear(768, num_classes) # please determine 768 by the classifier/head of the model
+        else:
+            self.classifier = None
 
-    def forward(self, x):
-        features = self.flatten(self.feature_extractor(x))
-        return features
-        # if self.num_classes is None:
-        #     return features
-        # else:
-        #     out = self.classifier(features, **kwargs)
-        #     if isinstance(out, tuple):
-        #         logits, uncertainty = out
-        #         prob = F.log_softmax(logits, dim=1)
-        #         return prob
+    def forward(self, x, **kwargs):
+        features = self.feature_extractor(x)
+        features = self.flatten(features)
+
+        if self.classifier is None:
+            return features
+
+        logits = self.classifier(features)
+
+        if isinstance(logits, tuple):
+            logits, uncertainty = logits
+            prob = F.log_softmax(logits, dim=1)
+            return prob, uncertainty
+        else:
+            return F.log_softmax(logits, dim=1)
 
 class SimpleMLP(nn.Module):
     def __init__(self, num_classes: int):
