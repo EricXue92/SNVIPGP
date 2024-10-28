@@ -62,7 +62,7 @@ def main(args):
             'gp_use_custom_random_features': True,
             'gp_random_feature_type': 'orf',
             'gp_output_imagenet_initializer': True,
-            'num_classes': 4,
+            'num_classes': 10, ##### 10
         }
         model = convert_to_sn_my(model, spec_norm_replace_list, spec_norm_bound)
         replace_layer_with_gaussian(container=model, signature="classifier", **GP_KWARGS)
@@ -128,7 +128,6 @@ def main(args):
         for batch_idx, (X, y) in enumerate(train_loader):
             X, y = X.to(device), y.to(device)
             y_pred = model(X)
-
             if args.conformal_training and not args.sngp:
                 CP_size_fn = ConformalTrainingLoss(alpha=args.alpha, beta=args.beta,
                                                    temperature=args.temperature, sngp_flag=False, args=args)
@@ -192,7 +191,7 @@ def main(args):
 
     for epoch in range(args.epochs):
         model.classifier.reset_covariance_matrix() if args.sngp else None
-        print(f"\nEpoch: {epoch + 1}/{args.epochs}\n {'-' * 30}")
+        print(f"\nEpoch: {epoch + 1}/{args.epochs}\n {'-' * 40}")
 
         train(model, train_loader, loss_fn, optimizer, accuracy_fn, device)
 
@@ -254,7 +253,7 @@ def main(args):
 def parse_arguments():
     parser = argparse.ArgumentParser()
     parser.add_argument("--learning_rate", type=float, default=3e-3, help="Learning rate") # sngp = 0.05
-    parser.add_argument("--epochs", type=int, default=30, help="Number of epochs to train for")
+    parser.add_argument("--epochs", type=int, default=1, help="Number of epochs to train for")
     parser.add_argument("--batch_size", type=int, default=128, help="Batch size to use for training") # 32
     parser.add_argument("--number_of_class", type=int, default=10) # 4, 10
     parser.add_argument("--alpha", type=float, default=0.05, help="Conformal Rate" )
@@ -263,7 +262,7 @@ def parse_arguments():
     parser.add_argument("--n_inducing_points", type=int, default=10, help="Number of inducing points") # 10, 12
     parser.add_argument("--beta", type=float, default=0.1, help="Weight for conformal training loss")
     parser.add_argument("--temperature", type=float, default=0.01, help="Temperature for conformal training loss")
-    parser.add_argument("--sngp", action="store_true", help="Use SNGP (RFF and Laplace) instead of a DUE (sparse GP)")
+    parser.add_argument("--sngp", action="store_false", help="Use SNGP (RFF and Laplace) instead of a DUE (sparse GP)")
     parser.add_argument("--conformal_training", action="store_true", help="conformal training or not")
     parser.add_argument("--weight_decay", type=float, default=1e-4, help="Weight decay") # 5e-4
     parser.add_argument("--kernel", default="RBF", choices=["RBF", "RQ", "Matern12", "Matern32", "Matern52"], help="Pick a kernel",)
@@ -285,7 +284,7 @@ def parse_arguments():
 if __name__ == "__main__":
     args = parse_arguments()
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    seeds = [1, 23, 42, 202, 2024]
+    seeds =[1, 23] # [1, 23, 42, 202, 2024]
 
     repeat_experiment(args, seeds, main)
 

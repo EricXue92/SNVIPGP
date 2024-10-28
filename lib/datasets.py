@@ -70,7 +70,7 @@ def get_cifar10_or_svhm(image_path: str = "./data_feature/CIFAR10"):
     train_data = torch.load(train_feature_path)
     train_representations, labels= train_data['features'], train_data['labels']
 
-    X_train, X_val, y_train, y_val = train_test_split(train_representations, labels , test_size=0.2, random_state=42)
+    X_train, X_val, y_train, y_val = train_test_split(train_representations, labels , test_size=0.1, random_state=42)
     train_dataset, val_dataset = TensorDataset(X_train, y_train), TensorDataset(X_val, y_val)
 
     test_data = torch.load(test_feature_path)
