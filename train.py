@@ -6,17 +6,18 @@ from gpytorch.mlls import VariationalELBO
 from gpytorch.likelihoods import SoftmaxLikelihood
 from due import dkl
 from due.convnext import ConvNextTinyGP, SimpleMLP, SimpleConvNet
-from lib.datasets import get_dataset, get_feature_dataset
+from lib.datasets import get_feature_dataset, get_cifar10_or_svhm
 from lib.evaluate_ood import get_ood_metrics
 from lib.utils import get_results_directory, Hyperparameters, accuracy_fn, set_seed, repeat_experiment
 from lib.evaluate_cp import conformal_evaluate, ConformalTrainingLoss, tps
 from sngp_wrapper.covert_utils import replace_layer_with_gaussian, convert_to_sn_my
 from torch.utils.data import DataLoader
-
+import json
 import operator
 import os
 
 os.environ["CUDA_VISIBLE_DEVICES"]="0"
+os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
 
 import wandb
 from functools import partial
@@ -31,12 +32,17 @@ def main(args):
     # args.size_loss_form = wandb.config.size_loss_form
 
     writer = SummaryWriter(log_dir=str(results_dir))
-    ds = get_feature_dataset(args.dataset)
+    ds = get_feature_dataset(args.dataset)()
     input_size, num_classes, train_dataset, val_dataset, test_dataset = ds
+
+    print(f"Train dataset: {len(train_dataset)} | Val dataset: {len(val_dataset)} | Test dataset: {len(test_dataset)}")
 
     if args.n_inducing_points is None:
         args.n_inducing_points = num_classes
-    print(f"Training with {args}")
+
+    args_dict = vars(args)
+    args_json = json.dumps(args_dict, indent=4)
+    print(f"Training with:\n{args_json}")
 
     spec_norm_replace_list = ["Linear", "Conv2D"]
     spec_norm_bound = 0.95
@@ -96,20 +102,16 @@ def main(args):
     if not args.sngp:
         parameters.append({"params": likelihood.parameters(), 'lr': args.learning_rate})
 
-    optimizer = torch.optim.AdamW(
-        parameters
-    )
+    optimizer = torch.optim.AdamW(parameters)
 
     training_steps = len(train_dataset) // args.batch_size * args.epochs
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=training_steps)
 
     best_inefficiency, best_auroc, best_aupr = float('inf'), float('-inf'), float('-inf')
-    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=4,
-                              pin_memory=True)
-    val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, num_workers=4,
-                            pin_memory=True)
-    test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False, num_workers=4,
-                             pin_memory=True)
+
+    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=4, pin_memory=True)
+    val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False, num_workers=4, pin_memory=True)
+    test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False, num_workers=4, pin_memory=True)
 
     def simple_transform(args, outputs):
         if not args.sngp:
@@ -131,10 +133,8 @@ def main(args):
                 CP_size_fn = ConformalTrainingLoss(alpha=args.alpha, beta=args.beta,
                                                    temperature=args.temperature, sngp_flag=False, args=args)
                 loss_cn = loss_fn(y_pred, y)
-
                 y_temp = y_pred.to_data_independent_dist()
                 y_temp = likelihood(y_temp).probs.mean(0)
-
                 loss_size = CP_size_fn(y_temp, y)
                 loss = loss_cn + loss_size
                 print(f"Total loss: {(loss.item() + loss_size):.4f} | ELBO: {loss_cn.item():.4f} | Size loss: {loss_size:.4f}")
@@ -192,10 +192,14 @@ def main(args):
 
     for epoch in range(args.epochs):
         model.classifier.reset_covariance_matrix() if args.sngp else None
-        print(f"\nEpoch: {epoch + 1}/{args.epochs}\n {'-' * 10}")
+        print(f"\nEpoch: {epoch + 1}/{args.epochs}\n {'-' * 30}")
+
         train(model, train_loader, loss_fn, optimizer, accuracy_fn, device)
+
         val_loss, val_acc, val_smx, val_labels = test("Validation", model, val_loader, accuracy_fn, device)
-        _, auroc, aupr = get_ood_metrics(args.dataset, "Alzheimer", model, likelihood, feature_data=True)
+
+        _, auroc, aupr = get_ood_metrics(args.dataset, args.OOD, model, likelihood)
+
         print(f"OoD Metrics - AUROC: {auroc:.4f} | AUPR: {aupr:.4f}")
         _, coverage, inefficiency = tps(cal_smx=val_smx, val_smx=val_smx, cal_labels=val_labels, val_labels=val_labels,
                                   n=len(val_labels), alpha=args.alpha)
@@ -223,7 +227,7 @@ def main(args):
         likelihood.load_state_dict(state['likelihood']) if not args.sngp else None
 
     load_best_state("auroc", model, likelihood)
-    _, auroc, aupr = get_ood_metrics(args.dataset, "Alzheimer", model, likelihood, feature_data=True)
+    _, auroc, aupr = get_ood_metrics(args.dataset, args.OOD, model, likelihood)
     print(f"OoD Metrics - AUROC: {auroc:.4f} | AUPR: {aupr:.4f}")
 
     load_best_state("inefficiency", model, likelihood)
@@ -250,16 +254,17 @@ def main(args):
 def parse_arguments():
     parser = argparse.ArgumentParser()
     parser.add_argument("--learning_rate", type=float, default=3e-3, help="Learning rate") # sngp = 0.05
-    parser.add_argument("--epochs", type=int, default=1, help="Number of epochs to train for")
-    parser.add_argument("--batch_size", type=int, default=32, help="Batch size to use for training")
-    parser.add_argument("--number_of_class", type=int, default=4)
+    parser.add_argument("--epochs", type=int, default=30, help="Number of epochs to train for")
+    parser.add_argument("--batch_size", type=int, default=128, help="Batch size to use for training") # 32
+    parser.add_argument("--number_of_class", type=int, default=10) # 4, 10
     parser.add_argument("--alpha", type=float, default=0.05, help="Conformal Rate" )
-    parser.add_argument("--dataset", default="Brain_tumors", choices=["Brain_tumors", "Alzheimer",'CIFAR10', 'CIFAR100', "SVHN"])
-    parser.add_argument("--n_inducing_points", type=int, default=12, help="Number of inducing points" ) # 12
+    parser.add_argument("--dataset", default="CIFAR10", choices=["Brain_tumors", "Alzheimer",'CIFAR10', "SVHN", "CIFAR100"])
+    parser.add_argument("--OOD", default="SVHN", choices=["Brain_tumors", "Alzheimer", 'CIFAR10', 'CIFAR100', "SVHN"])
+    parser.add_argument("--n_inducing_points", type=int, default=10, help="Number of inducing points") # 10, 12
     parser.add_argument("--beta", type=float, default=0.1, help="Weight for conformal training loss")
     parser.add_argument("--temperature", type=float, default=0.01, help="Temperature for conformal training loss")
     parser.add_argument("--sngp", action="store_true", help="Use SNGP (RFF and Laplace) instead of a DUE (sparse GP)")
-    parser.add_argument("--conformal_training", action="store_true", help="conformal training or not" )
+    parser.add_argument("--conformal_training", action="store_true", help="conformal training or not")
     parser.add_argument("--weight_decay", type=float, default=1e-4, help="Weight decay") # 5e-4
     parser.add_argument("--kernel", default="RBF", choices=["RBF", "RQ", "Matern12", "Matern32", "Matern52"], help="Pick a kernel",)
     parser.add_argument("--no_spectral_conv", action="store_false",  dest="spectral_conv", help="Don't use spectral normalization on the convolutions",)

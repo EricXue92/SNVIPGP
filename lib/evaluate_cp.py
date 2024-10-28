@@ -4,10 +4,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import gpytorch
-from .datasets import get_dataset
-from lib.datasets import get_Brain_tumors, get_Alzheimer, get_CIFAR10, get_CIFAR100, get_SVHN, get_tumors_feature
+from lib.datasets import get_tumors_feature
 from ignite.metrics import Metric
 from torch.utils.data import Dataset, DataLoader
+from lib.datasets import get_feature_dataset
 
 NUM_WORKERS = os.cpu_count()
 
@@ -103,15 +103,15 @@ def get_multiple_permutations(permutation_size: int = 500, num_permutations: int
 
 def conformal_evaluate(model, likelihood, dataset, adaptive_flag, alpha):
     if dataset == 'CIFAR10':
-        _, _, _, val_dataset, test_dataset = get_CIFAR10()
+        _, _, _, val_dataset, test_dataset = get_feature_dataset("CIFAR10")()
     elif dataset == 'Brain_tumors':
-        _, _, _, val_dataset, test_dataset = get_tumors_feature(image_path="./data_feature/Brain_tumors")#get_Brain_tumors()
+        _, _, _, val_dataset, test_dataset = get_feature_dataset("Brain_tumors")()
     elif dataset == 'Alzheimer':
-        _, _, _, val_dataset, test_dataset = get_tumors_feature(image_path="./data_feature/Alzheimer") #get_Alzheimer()
+        _, _, _, val_dataset, test_dataset = get_feature_dataset("Alzheimer")()
     elif dataset == 'SVHN':
-        _, _, _, val_dataset, test_dataset = get_SVHN()
+        _, _, _, val_dataset, test_dataset = get_feature_dataset("SVHM")()
     elif dataset == 'CIFAR100':
-        _, _, _, val_dataset, test_dataset = get_CIFAR100()
+        _, _, _, val_dataset, test_dataset = get_feature_dataset("CIFAR100")()
     else:
         print("Invalid dataset")
         return None, None

@@ -1,26 +1,15 @@
 import os
-import numpy as np
 import torch
-from torch.utils import data
-from torchvision import datasets, transforms
-from torch.utils.data import Dataset, ConcatDataset, random_split, DataLoader, Subset
+from torch.utils.data import Dataset, Subset, TensorDataset
 from sklearn.model_selection import train_test_split
-from torchvision.transforms import v2
 import glob
-
-NUM_WORKERS = os.cpu_count()
-
-IMAGENET_CONVNEXT_MEAN = [0.485, 0.456, 0.406]
-IMAGENET_CONVNEXT_STD = [0.229, 0.224, 0.225]
 
 class TransformedDataset(Dataset):
     def __init__(self, dataset, transform=None):
         self.dataset = dataset
         self.transform = transform
-
     def __len__(self):
         return len(self.dataset)
-
     def __getitem__(self, idx):
         data, target = self.dataset[idx]
         if self.transform:
@@ -49,90 +38,62 @@ class FeatureDataset(Dataset):
         label = os.path.basename(os.path.dirname(feature_path))
         return feature, self.label_map[label]
 
-
-class CustomDataset(Dataset):
-    def __init__(self, representations, labels):
-        self.representations = representations
-        self.labels = labels
-
-    def __len__(self):
-        return len(self.representations)
-
-    def __getitem__(self, idx):
-        return self.representations[idx], self.labels[idx]
-
-
-def get_tumors_feature(image_path: str = "./data/Brain_tumors"):
-
+def get_tumors_feature(image_path: str = "./data_feature/Brain_tumors"):
     full_dataset = FeatureDataset(image_path)
-
     input_size = 768
     num_classes = 4
-
     targets = [full_dataset[i][1] for i in range(len(full_dataset))]
-
     train_indices, temp_indices, _, temp_labels = train_test_split(
         range(len(full_dataset)), targets, test_size=0.2, stratify=targets, random_state=23
     )
     val_indices, test_indices = train_test_split(
         temp_indices, test_size=0.5, stratify=temp_labels, random_state=23
     )
-
     train_dataset = TransformedDataset(Subset(full_dataset, train_indices), transform=None)
     val_dataset = TransformedDataset(Subset(full_dataset, val_indices), transform=None)
     test_dataset = TransformedDataset(Subset(full_dataset, test_indices), transform=None)
+    return input_size, num_classes, train_dataset, val_dataset, test_dataset
+
+def get_cifar10_or_svhm(image_path: str = "./data_feature/CIFAR10"):
+    input_size, num_classes = 768, 10
+    dataset_name = os.path.basename(image_path)
+
+    train_feature_path = os.path.join(image_path, "train")
+    test_feature_path = os.path.join(image_path, "test")
+
+    train_feature_path = os.path.join(train_feature_path, f"{dataset_name}.pt")
+    test_feature_path = os.path.join(test_feature_path, f"{dataset_name}.pt")
+
+    if not (os.path.exists(train_feature_path) and os.path.exists(test_feature_path)):
+        raise FileNotFoundError(f"One or both files do not exist: {train_feature_path}, {test_feature_path}.")
+
+    train_data = torch.load(train_feature_path)
+    train_representations, labels= train_data['features'], train_data['labels']
+
+    X_train, X_val, y_train, y_val = train_test_split(train_representations, labels , test_size=0.2, random_state=42)
+    train_dataset, val_dataset = TensorDataset(X_train, y_train), TensorDataset(X_val, y_val)
+
+    test_data = torch.load(test_feature_path)
+    test_representations, labels = test_data['features'], test_data['labels']
+    test_dataset = TensorDataset(test_representations, labels)
 
     return input_size, num_classes, train_dataset, val_dataset, test_dataset
 
-
-def get_cifar10(image_path="../data_feature/CIFAR10", train_flag=True):
-    file_path = os.path.join(image_path, "train") if train_flag else os.path.join(image_path,"test")
-    file_path = os.path.join(file_path, "CIFAR10.pt")
-    # Check if the file exists
-    if not os.path.exists(file_path):
-        raise FileNotFoundError(f"File {file_path} does not exist.")
-    input_size, num_classes = 768, 10
-    # Load the features and labels
-    data = torch.load(file_path)
-    representations = data['features']
-    labels = data['labels']
-
-    print("representations.shape:", representations.shape, "labels.shape:", labels.shape)
-
-    if train_flag:
-        dataset_size = len(representations)
-        train_size = int(0.8 * dataset_size)
-        indices = list(range(dataset_size))
-
-        train_indices, val_indices = indices[:train_size], indices[train_size:]
-
-        train_dataset = Subset(CustomDataset(representations, labels), train_indices)
-        val_dataset = Subset(CustomDataset(representations, labels), val_indices)
-
-        return input_size, num_classes, train_dataset, val_dataset
-
-    else:
-        train_data = CustomDataset(representations, labels)
-
-        return input_size, num_classes, train_data
-
+all_feature_datasets = {
+    "Brain_tumors": lambda: get_tumors_feature(image_path="./data_feature/Brain_tumors"),
+    "Alzheimer": lambda: get_tumors_feature(image_path="./data_feature/Alzheimer"),
+    "CIFAR10": lambda: get_cifar10_or_svhm(image_path="./data_feature/CIFAR10"),
+    "SVHN": lambda: get_cifar10_or_svhm(image_path="./data_feature/SVHN")
+}
 
 def get_feature_dataset(dataset):
     return all_feature_datasets[dataset]
 
 
-all_feature_datasets = {
-    # "Brain_tumors": get_tumors_feature(image_path="./data_feature/Brain_tumors"),
-    # "Alzheimer": get_tumors_feature(image_path="./data_feature/Alzheimer"),
-    "CIFAR10": get_cifar10(),
-    #"SVHM": get_cifar10_or_svhm_feature(dataset_name="SVHM", train_flag=True),
-}
-
-
-if __name__ == "__main__":
-
-    get_cifar10()
-
+# if __name__ == "__main__":
+#     temp = get_feature_dataset("CIFAR10")()
+#     input_size, num_classes, train_dataset, val_dataset, test_dataset = temp
+#     print(train_dataset[8])
 
 #     feauture_f = FeatureDataset('../data_feature/Brain_tumors')
 #     print("len(feauture_f):", len(feauture_f))

@@ -4,7 +4,7 @@ import torch
 import torch.nn.functional as F
 import gpytorch
 from sklearn.metrics import roc_auc_score, precision_recall_curve, auc
-from .datasets import get_dataset, get_feature_dataset
+from .datasets import get_feature_dataset
 #from sngp_wrapper.covert_utils import convert_to_sn_my, replace_layer_with_gaussian
 from torch.utils.data import ConcatDataset, DataLoader, Dataset
 import gc
@@ -87,18 +87,15 @@ def loop_over_dataloader(model, likelihood, dataloader):
 
     return scores, accuracies
 
-def get_ood_metrics(in_dataset: object, out_dataset: object, model: object, likelihood: object = None, feature_data: bool = True) -> object:  # , root="./"
+def get_ood_metrics(in_dataset: object, out_dataset: object, model: object, likelihood: object = None) -> object:  # , root="./"
     # return input_size, num_classes, train_dataset, val_dataset, test_dataset
     # _, _, _, _, in_dataset = get_dataset(in_dataset)  # , root=root
     # _, _, _, _, out_dataset = get_dataset(out_dataset)  # , root=root
 
     # val + test
-    if feature_data:
-        _, _, _, val_in_dataset, in_dataset = get_feature_dataset(in_dataset)
-        _, _, _, val_out_dataset, out_dataset = get_feature_dataset(out_dataset)
-    else:
-        _, _, _, val_in_dataset, in_dataset = get_dataset(in_dataset)  # , root=root
-        _, _, _, val_out_dataset, out_dataset = get_dataset(out_dataset)  # , root=root
+
+    _, _, _, val_in_dataset, in_dataset = get_feature_dataset(in_dataset)()
+    _, _, _, val_out_dataset, out_dataset = get_feature_dataset(out_dataset)()
 
     in_dataset = ConcatDataset([val_in_dataset, in_dataset])
     out_dataset = ConcatDataset([val_out_dataset, out_dataset])
@@ -109,7 +106,7 @@ def get_ood_metrics(in_dataset: object, out_dataset: object, model: object, like
     accuracy = np.mean(accuracies[:len(in_dataset)])
 
     assert len(anomaly_targets) == len(scores), "Mismatch in lengths of anomaly_targets and scores"
-    print(f"length {len(in_dataset)} out of {len(anomaly_targets)}")
+    print(f"IID length {len(in_dataset)} out of OOD {len(anomaly_targets)}")
 
     auroc = roc_auc_score(anomaly_targets, scores)
     precision, recall, _ = precision_recall_curve(anomaly_targets, scores)
