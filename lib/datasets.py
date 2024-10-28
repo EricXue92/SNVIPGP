@@ -68,14 +68,14 @@ def get_cifar10_or_svhm(image_path: str = "./data_feature/CIFAR10"):
         raise FileNotFoundError(f"One or both files do not exist: {train_feature_path}, {test_feature_path}.")
 
     train_data = torch.load(train_feature_path)
-    train_representations, labels= train_data['features'], train_data['labels']
+    train_representations, train_labels= train_data['features'], train_data['labels']
 
-    X_train, X_val, y_train, y_val = train_test_split(train_representations, labels , test_size=0.1, random_state=42)
+    X_train, X_val, y_train, y_val = train_test_split(train_representations, train_labels , test_size=0.1, random_state=42)
     train_dataset, val_dataset = TensorDataset(X_train, y_train), TensorDataset(X_val, y_val)
 
     test_data = torch.load(test_feature_path)
-    test_representations, labels = test_data['features'], test_data['labels']
-    test_dataset = TensorDataset(test_representations, labels)
+    test_representations, test_labels = test_data['features'], test_data['labels']
+    test_dataset = TensorDataset(test_representations, test_labels)
 
     return input_size, num_classes, train_dataset, val_dataset, test_dataset
 
@@ -88,7 +88,6 @@ all_feature_datasets = {
 
 def get_feature_dataset(dataset):
     return all_feature_datasets[dataset]
-
 
 # if __name__ == "__main__":
 #     temp = get_feature_dataset("CIFAR10")()

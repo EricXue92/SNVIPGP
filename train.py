@@ -121,7 +121,7 @@ def main(args):
 
     def train(model, data_loader, loss_fn, optimizer, accuracy_fn, device):
         train_loss, train_acc = 0, 0
-        model.to(device)
+        model = model.to(device)
         model.train()
         if not args.sngp and likelihood is not None:
             likelihood.train()
@@ -254,7 +254,7 @@ def parse_arguments():
     parser = argparse.ArgumentParser()
     parser.add_argument("--learning_rate", type=float, default=3e-3, help="Learning rate") # sngp = 0.05
     parser.add_argument("--epochs", type=int, default=1, help="Number of epochs to train for")
-    parser.add_argument("--batch_size", type=int, default=128, help="Batch size to use for training") # 32
+    parser.add_argument("--batch_size", type=int, default=64, help="Batch size to use for training") # 32
     parser.add_argument("--number_of_class", type=int, default=10) # 4, 10
     parser.add_argument("--alpha", type=float, default=0.05, help="Conformal Rate" )
     parser.add_argument("--dataset", default="CIFAR10", choices=["Brain_tumors", "Alzheimer",'CIFAR10', "SVHN", "CIFAR100"])
@@ -262,7 +262,7 @@ def parse_arguments():
     parser.add_argument("--n_inducing_points", type=int, default=10, help="Number of inducing points") # 10, 12
     parser.add_argument("--beta", type=float, default=0.1, help="Weight for conformal training loss")
     parser.add_argument("--temperature", type=float, default=0.01, help="Temperature for conformal training loss")
-    parser.add_argument("--sngp", action="store_false", help="Use SNGP (RFF and Laplace) instead of a DUE (sparse GP)")
+    parser.add_argument("--sngp", action="store_true", help="Use SNGP (RFF and Laplace) instead of a DUE (sparse GP)")
     parser.add_argument("--conformal_training", action="store_true", help="conformal training or not")
     parser.add_argument("--weight_decay", type=float, default=1e-4, help="Weight decay") # 5e-4
     parser.add_argument("--kernel", default="RBF", choices=["RBF", "RQ", "Matern12", "Matern32", "Matern52"], help="Pick a kernel",)
@@ -284,7 +284,7 @@ def parse_arguments():
 if __name__ == "__main__":
     args = parse_arguments()
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    seeds =[1, 23] # [1, 23, 42, 202, 2024]
+    seeds = [1, 23, 42, 202, 2024]
 
     repeat_experiment(args, seeds, main)
 
