@@ -11,25 +11,34 @@ import wandb
 from pathlib import Path
 from collections import defaultdict
 import pandas as pd
+import time
+import seaborn as sns
+sns.set(style="whitegrid", font_scale=2)
 
 def repeat_experiment(args, seeds, main_fn):
     # run = wandb.init()
     result_dict = defaultdict(list)
-    tag_name = f"sngp{int(args.sngp)}_epoch{args.epochs}_dataset{args.dataset}.csv"
+    tag_name = f"sngp{int(args.sngp)}_epoch{args.epochs}_{args.dataset}_{args.learning_rate}_{args.coeff}.csv"
+    # tag_name = f"sngp{int(args.sngp)}_epoch{args.epochs}_dataset{args.dataset}_learning_rate{args.learning_rate}.csv"
     parent_name = "results_conformal" if args.conformal_training else "results_normal"
 
+    start_time = time.time()
     for seed in seeds:
         set_seed(seed)
         one_result = main_fn(args)
         for k, v in one_result.items():
             result_dict[k].append(v)
 
+    end_time = time.time()
+    run_time = end_time - start_time
+    print(f"Run time: {run_time:.2f}s")
+
     results_file_path = Path(f"{parent_name}/{tag_name}")
     results_file_path.parent.mkdir(exist_ok=True)
 
     summary_metrics = pd.DataFrame(result_dict)
     statistic_metrics = summary_metrics.agg(["mean", "std"]).transpose()
-    statistic_metrics["mean-std"] = (statistic_metrics["mean"].round(4).astype(str) + "+-" +
+    statistic_metrics["mean-std"] = (statistic_metrics["mean"].round(4).astype(str) + "±" +
                                      statistic_metrics["std"].round(4).astype(str))
     statistic_metrics = statistic_metrics.drop(columns=["mean", "std"]).transpose()
     summary_metrics = pd.concat([summary_metrics, statistic_metrics])
@@ -51,25 +60,31 @@ def set_seed(seed):
     torch.backends.cudnn.benchmark = False
     return seed
 
-def plot_training_history(train_loss, val_loss, train_acc, val_acc):
-    epochs = range(1, len(train_loss) + 1)
-    plt.figure(figsize=(12, 5))
+def plot_loss_curves(results):
+    loss = results["train_loss"]
+    test_loss = results["val_loss"]
+    accuracy = results["train_acc"]
+    test_accuracy = results["val_acc"]
+    epochs = range(len(results["train_loss"]))
+    plt.figure(figsize=(15, 7))
+    # Plot loss
     plt.subplot(1, 2, 1)
-    plt.plot(epochs, train_loss, label='Training Loss')
-    plt.plot(epochs, val_loss, label='Validation Loss')
-    plt.title('Training and Validation Loss')
-    plt.xlabel('Epochs')
-    plt.ylabel('Loss')
+    plt.plot(epochs, loss, label="train_loss")
+    plt.plot(epochs, test_loss, label="val_loss")
+    plt.title("Loss")
+    plt.xlabel("Epochs")
     plt.legend()
+    # Plot accuracy
     plt.subplot(1, 2, 2)
-    plt.plot(epochs, train_acc, label='Training Accuracy')
-    plt.plot(epochs, val_acc, label='Validation Accuracy')
-    plt.title('Training and Validation Accuracy')
-    plt.xlabel('Epochs')
-    plt.ylabel('Accuracy')
+    plt.plot(epochs, accuracy, label="train_accuracy")
+    plt.plot(epochs, test_accuracy, label="val_accuracy")
+    plt.title("Accuracy")
+    plt.xlabel("Epochs")
     plt.legend()
     plt.tight_layout()
-    plt.savefig('Learning_process.pdf')
+    name = f"learning_curve_epochs{epochs}.png"
+    plt.savefig(name, bbox_inches='tight')
+    # plt.show(block=True)
 
 def plot_OOD(plot_auroc, plot_aupr):
     epochs = range(1, len(plot_auroc) + 1)
@@ -125,7 +140,7 @@ class Hyperparameters:
     def to_dict(self):
         return vars(self)
 
-    # The from_dict method updates the attributes of the object using a dictionary.
+    # setattr() : dynamically assign the attributes a object -> setattr(object, name, value)
     def from_dict(self, dictionary):
         for k, v in dictionary.items():
             setattr(self, k, v)
@@ -146,15 +161,12 @@ class Hyperparameters:
     # print(obj.age)        # 30
     # print(obj.occupation) # Engineer
 
-    # Converts the hyperparameters to a JSON-formatted string for easy readability and storage
     def to_json(self):
         return json.dumps(self.to_dict(), indent=4, sort_keys=True)
 
-    # Saves the hyperparameters to a specified path in JSON format.
     def save(self, path):
         path.write_text(self.to_json())
 
-    # Loads hyperparameters from a JSON file and updates the object's attributes
     def load(self, path):
         if not isinstance(path, Path):
             path = Path(path)

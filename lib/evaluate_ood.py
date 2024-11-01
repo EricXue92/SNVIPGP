@@ -54,10 +54,10 @@ def loop_over_dataloader(model, likelihood, dataloader):
 
                     probs = predictive_dist.probs
                     output = probs.mean(0)  # output: (batch_size, num_of_classes) (64, 4)
-
                     # GP Uncertainty
                     uncertainty = probs.var(0)
                     # # return the maximum or mean uncertainty across the classes
+                # uncertainty, max_indices = torch.max(uncertainty, dim=1)
                 uncertainty = torch.mean(uncertainty, dim=1)
 
                 # Dempster-Shafer uncertainty for IPGP
@@ -106,7 +106,7 @@ def get_ood_metrics(in_dataset: object, out_dataset: object, model: object, like
     accuracy = np.mean(accuracies[:len(in_dataset)])
 
     assert len(anomaly_targets) == len(scores), "Mismatch in lengths of anomaly_targets and scores"
-    print(f"IID length {len(in_dataset)} out of OOD {len(anomaly_targets)}")
+    # print(f"IID length {len(in_dataset)} out of OOD {len(anomaly_targets)}")
 
     auroc = roc_auc_score(anomaly_targets, scores)
     precision, recall, _ = precision_recall_curve(anomaly_targets, scores)
