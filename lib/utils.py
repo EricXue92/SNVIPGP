@@ -13,12 +13,12 @@ from collections import defaultdict
 import pandas as pd
 import time
 import seaborn as sns
-sns.set(style="whitegrid", font_scale=2)
+sns.set(style="white", font_scale=2)
 
 def repeat_experiment(args, seeds, main_fn):
     # run = wandb.init()
     result_dict = defaultdict(list)
-    tag_name = f"sngp{int(args.sngp)}_epoch{args.epochs}_{args.dataset}_{args.learning_rate}_{args.coeff}.csv"
+    tag_name = f"sngp{int(args.sngp)}_epoch{args.epochs}_{args.dataset}_{args.learning_rate}_{args.coeff}_{args.kernel}.csv"
     # tag_name = f"sngp{int(args.sngp)}_epoch{args.epochs}_dataset{args.dataset}_learning_rate{args.learning_rate}.csv"
     parent_name = "results_conformal" if args.conformal_training else "results_normal"
 
@@ -44,10 +44,8 @@ def repeat_experiment(args, seeds, main_fn):
     summary_metrics = pd.concat([summary_metrics, statistic_metrics])
     if results_file_path.exists():
         existing_data = pd.read_csv(results_file_path)
-        summary_metrics = pd.concat([existing_data, summary_metrics],
-                                    ignore_index=True)
+        summary_metrics = pd.concat([existing_data, summary_metrics], ignore_index=True)
     summary_metrics.to_csv(results_file_path, index=False)
-
     # wandb.finish()
 
 def set_seed(seed):
@@ -82,7 +80,7 @@ def plot_loss_curves(results):
     plt.xlabel("Epochs")
     plt.legend()
     plt.tight_layout()
-    name = f"learning_curve_epochs{epochs}.png"
+    name = f"learning_curve.png"
     plt.savefig(name, bbox_inches='tight')
     # plt.show(block=True)
 
@@ -111,86 +109,3 @@ def get_results_directory(name, stamp=True):
     results_dir = results_dir / timestamp if stamp else results_dir
     results_dir.mkdir(parents=True)
     return results_dir
-
-
-# The Hyperparameters class manages hyperparameters for a model,
-# allowing them to be easily saved, loaded, and updated.
-# It supports initialization from a file and dynamic updates via keyword arguments.
-class Hyperparameters:
-    def __init__(self, *args, **kwargs):
-        # If the first argument is a Path object, load hyperparameters from the file
-        if len(args) == 1 and isinstance(args[0], Path):
-            self.load(args[0])
-        # Otherwise, initialize hyperparameters from keyword arguments
-        self.from_dict(kwargs)
-
-    # convert hyperparameters to dictionary
-    # class ExampleClass:
-    #     def __init__(self, name, value):
-    #         self.name = name
-    #         self.value = value
-    #     def to_dict(self):
-    #         return vars(self)
-
-    # example = ExampleClass(name="example", value=42)
-    # example_dict = example.to_dict()
-    # print(example_dict)  # Output: {'name': 'example', 'value': 42}
-
-    #  The to_dict method converts the attributes of the object to a dictionary.
-    def to_dict(self):
-        return vars(self)
-
-    # setattr() : dynamically assign the attributes a object -> setattr(object, name, value)
-    def from_dict(self, dictionary):
-        for k, v in dictionary.items():
-            setattr(self, k, v)
-
-    # class MyClass:
-    #     def from_dict(self, dictionary):
-    #         for k, v in dictionary.items():
-    #             setattr(self, k, v)
-    # data = {
-    #     "name": "Alice",
-    #     "age": 30,
-    #     "occupation": "Engineer"
-    # }
-    # obj = MyClass()
-    # obj.from_dict(data)
-
-    # print(obj.name)       # Alice
-    # print(obj.age)        # 30
-    # print(obj.occupation) # Engineer
-
-    def to_json(self):
-        return json.dumps(self.to_dict(), indent=4, sort_keys=True)
-
-    def save(self, path):
-        path.write_text(self.to_json())
-
-    def load(self, path):
-        if not isinstance(path, Path):
-            path = Path(path)
-        self.from_dict(json.loads(path.read_text()))
-
-    # Checks if a hyperparameter exists using the hasattr function
-    def __contains__(self, k):
-        return hasattr(self, k)
-
-    # provides a readable string representation of the hyperparameters in JSON format
-    def __str__(self):
-        return f"Hyperparameters:\n {self.to_json()}"
-
-''' 
-# Create hyperparameters from a dictionary
-hyperparams = Hyperparameters(learning_rate=0.01, batch_size=32)
-
-# Save hyperparameters to a file
-hyperparams.save( Path('hyperparams.json') ) # 建立一个hyperparams.json的文件, 并保存相关参数
-
-# Load hyperparameters from a file
-loaded_hyperparams = Hyperparameters(Path('hyperparams.json'))
-
-# Print hyperparameters
-print(loaded_hyperparams)
-
-'''

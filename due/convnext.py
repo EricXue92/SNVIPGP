@@ -5,15 +5,15 @@ import torch
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-class ConvNextTinyGP(nn.Module):
+class ConvNextGP(nn.Module):
     def __init__(self, num_classes: int):
-        super(ConvNextTinyGP, self).__init__()
-        self.feature_extractor = torchvision.models.convnext_tiny(weights="ConvNeXt_Tiny_Weights.IMAGENET1K_V1")
+        super(ConvNextGP, self).__init__()
+        self.feature_extractor = torchvision.models.convnext_tiny(weights="ConvNeXt_Tiny_Weights.DEFAULT").to(device) # 768
+        #self.feature_extractor = torchvision.models.convnext_base(weights="ConvNeXt_Base_Weights.DEFAULT").to(device) # 1024
         for param in self.feature_extractor.parameters():
             param.requires_grad = False
         # Replace the classifier with nn.Identity to keep the features unchanged
         self.feature_extractor.classifier = nn.Identity()
-
         self.flatten = nn.Flatten(start_dim=1, end_dim=-1)
         self.num_classes = num_classes
 
@@ -27,6 +27,7 @@ class ConvNextTinyGP(nn.Module):
         features = self.flatten(features)
         if self.classifier is None:
             return features
+
         logits = self.classifier(features)
 
         if isinstance(logits, tuple):
@@ -73,12 +74,10 @@ class ResidualBlock(nn.Module):
         # self.bn = nn.BatchNorm1d(out_features)
         self.dropout = nn.Dropout(0.1)
         self.activation = nn.PReLU()
-        # Make sure shortcut transformation preserves dimensions
         self.shortcut = nn.Linear(in_features, out_features) if in_features != out_features else nn.Identity()
+
     def forward(self, x):
-        # Store residual before any transformations
         residual = self.shortcut(x)
-        # Main path
         out = self.fc(x)
         # out = self.bn(out)
         out = self.activation(out)
@@ -92,22 +91,23 @@ class SimpleResnet(nn.Module):
         super(SimpleResnet, self).__init__()
         self.num_classes = num_classes
         # Input layer
-        self.input_layer = nn.Linear(768, 256)
+        # self.input_layer = nn.Linear(768, 256)
+        self.input_layer = nn.Linear(1024, 512)
         self.input_activation = nn.PReLU()  # Add activation after input layer
         # Residual blocks
-        self.res1 = ResidualBlock(256, 128)
-        self.res2 = ResidualBlock(128, 64)
+        self.res1 = ResidualBlock(512, 256)
+        self.res2 = ResidualBlock(256, 128)
         #self.res3 = ResidualBlock(256, 128)
 
         # Classifier
         if self.num_classes is not None:
-            self.classifier = nn.Linear(64, num_classes)
+            self.classifier = nn.Linear(128, num_classes)
 
     def forward(self, x, kwargs={}):
         batch_size = x.size(0)
         x = x.view(batch_size, -1)
         # Check input dimension
-        assert x.size(1) == 768, f"Expected input dimension 768, got {x.size(1)}"
+        assert x.size(1) == 1024, f"Expected input dimension 1024, got {x.size(1)}"
 
         # Input layer with activation
         x = self.input_layer(x)
@@ -121,20 +121,16 @@ class SimpleResnet(nn.Module):
             x = self.classifier(x, **kwargs)
         return x
 
-
 class SimpleMLP(nn.Module):
-    def __init__(self, num_classes: int or None):
+    def __init__(self, num_classes: int):
         super(SimpleMLP, self).__init__()
         self.num_classes = num_classes
-        # self.fc1 = nn.Linear(768, 256)
-        # self.fc2 = nn.Linear(256, 128)
         self.fc1 = nn.Linear(768, 256)
         self.fc2 = nn.Linear(256, 128)
-        #self.fc3 = nn.Linear(128, 64)
         self.dropout = nn.Dropout(0.1) # for cifar10
         self.prelu = nn.PReLU()
         if self.num_classes is not None:
-            self.classifier = nn.Linear(128, num_classes) # 128
+            self.classifier = nn.Linear(128, num_classes)
 
     def forward(self, x, kwargs={}):
         x = x.view(x.size(0), -1)
@@ -142,7 +138,6 @@ class SimpleMLP(nn.Module):
         x = self.dropout(x)
         x = self.prelu(self.fc2(x))
         x = self.dropout(x)
-        #x = self.prelu(self.fc3(x))
         if self.num_classes is not None:
             x = self.classifier(x, **kwargs)
         return x

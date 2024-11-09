@@ -2,37 +2,38 @@ import argparse
 import torch
 import torch.nn.functional as F
 from torch.utils.tensorboard import SummaryWriter
-from gpytorch.mlls import VariationalELBO
-from gpytorch.likelihoods import SoftmaxLikelihood
-from due import dkl
-from due.convnext import ConvNextTinyGP, SimpleMLP, SimpleConvNet, SimpleResnet
 from lib.datasets import get_feature_dataset
 from lib.evaluate_ood import get_ood_metrics
-from lib.utils import get_results_directory, Hyperparameters, accuracy_fn, set_seed, repeat_experiment, plot_loss_curves
+from lib.utils import get_results_directory, accuracy_fn, repeat_experiment, plot_loss_curves
 from lib.evaluate_cp import conformal_evaluate, ConformalTrainingLoss, tps
-from sngp_wrapper.covert_utils import replace_layer_with_gaussian, convert_to_sn_my
+from earlystopping import EarlyStopping
 from torch.utils.data import DataLoader
 import json
 import operator
 import os
 from builder_model import build_model
-import time
+
+import wandb
+from functools import partial
 
 NUM_WORKERS = os.cpu_count()
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
-os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
+# os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+# export CUDA_VISIBLE_DEVICES=1
 torch.backends.cudnn.benchmark = True
-#
-# import wandb
-# from functools import partial
 
 
 def main(args):
     results_dir = get_results_directory(args.output_dir)
     print(f"save to results_dir {results_dir}")
+
     # args.temperature = wandb.config.temperature
     # args.beta = wandb.config.beta
     # args.size_loss_form = wandb.config.size_loss_form
+    # args.learning_rate = wandb.config.learning_rate
+
+    # args.n_inducing_points = wandb.config.n_inducing_points
+    # args.kernel = wandb.config.kernel
+
     writer = SummaryWriter(log_dir=str(results_dir))
     ds = get_feature_dataset(args.dataset)()
     input_size, num_classes, train_dataset, val_dataset, test_dataset = ds
@@ -138,28 +139,27 @@ def main(args):
         target = torch.cat(target_list, dim=0)
         return test_loss, test_acc, prob, target
 
+    learning_curve = {"train_loss": [], "train_acc": [], "val_loss": [], "val_acc": [] }
 
-    learning_curve = {"train_loss": [],
-     "train_acc": [],
-     "val_loss": [],
-     "val_acc": [] }
+    # early_stopping = EarlyStopping(patience=5, verbose=True)
 
     for epoch in range(args.epochs):
         model.classifier.reset_covariance_matrix() if args.sngp else None
         print(f"\nEpoch: {epoch + 1}/{args.epochs}\n {'-' * 40}")
-
         train_loss, train_acc = train_step(model, train_loader, loss_fn, optimizer, accuracy_fn, device)
-
         learning_curve["train_loss"].append(train_loss)
         learning_curve["train_acc"].append(train_acc)
-
         val_loss, val_acc, val_smx, val_labels = test_step("Validation", model, val_loader, accuracy_fn, device)
-
         learning_curve["val_loss"].append(val_loss)
         learning_curve["val_acc"].append(val_acc)
 
-        _, auroc, aupr = get_ood_metrics(args.dataset, args.OOD, model, likelihood)
+        # early_stopping(val_loss)
+        #
+        # if early_stopping.early_stop:
+        #     print("Early stopping triggered. Stopping training.")
+        #     break
 
+        _, auroc, aupr = get_ood_metrics(args.dataset, args.OOD, model, likelihood)
         print(f"Train -- OoD Metrics - AUROC: {auroc:.4f} | AUPR: {aupr:.4f}")
         _, coverage, inefficiency = tps(cal_smx=val_smx, val_smx=val_smx, cal_labels=val_labels, val_labels=val_labels,
                                   n=len(val_labels), alpha=args.alpha)
@@ -205,7 +205,8 @@ def main(args):
     result["coverage_mean"], result["ineff_list"] = coverage_mean, ineff_list
 
     # wandb.log({"epochs": args.epochs, "test_loss": test_loss, "test_Acc": test_acc, "test_auroc": auroc, "test_aupr": aupr,
-    #            "test_ineff":inefficiency, "avg_coverage":coverage_mean, "ineff_list":ineff_list})
+    #            "test_ineff":inefficiency, "avg_coverage":coverage_mean, "ineff_list":ineff_list, "kernel":args.kernel,
+    #            "learning_rate":args.learning_rate})
 
     writer.close()
     plot_loss_curves(learning_curve)
@@ -213,9 +214,9 @@ def main(args):
 
 def parse_arguments():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--learning_rate", type=float, default=3e-3, help="Learning rate") # 3e-3, 1e-3 #
-    parser.add_argument("--epochs", type=int, default=1, help="Number of epochs to train for")
-    parser.add_argument("--batch_size", type=int, default=64, help="Batch size to use for training") # 32
+    parser.add_argument("--learning_rate", type=float, default=1e-3, help="Learning rate") # 3e-3, 1e-3 # 0.01
+    parser.add_argument("--epochs", type=int, default=50, help="Number of epochs to train for")
+    parser.add_argument("--batch_size", type=int, default=128, help="Batch size to use for training") # 32
     parser.add_argument("--number_of_class", type=int, default=10) # 4, 10
     parser.add_argument("--alpha", type=float, default=0.01, help="Conformal Rate" )
     parser.add_argument("--dataset", default="CIFAR10", choices=["Brain_tumors", "Alzheimer",'CIFAR10', "SVHN", "CIFAR100"])
@@ -223,10 +224,10 @@ def parse_arguments():
     parser.add_argument("--n_inducing_points", type=int, default=10, help="Number of inducing points") # 10, 12
     parser.add_argument("--beta", type=float, default=0.1, help="Weight for conformal training loss")
     parser.add_argument("--temperature", type=float, default=0.01, help="Temperature for conformal training loss")
-    parser.add_argument("--sngp", action="store_false", help="Use SNGP (RFF and Laplace) instead of a DUE (sparse GP)")
+    parser.add_argument("--sngp", action="store_true", help="Use SNGP (RFF and Laplace) instead of a DUE (sparse GP)")
     parser.add_argument("--conformal_training", action="store_true", help="conformal training or not")
     parser.add_argument("--weight_decay", type=float, default=1e-4, help="Weight decay") # 5e-4
-    parser.add_argument("--kernel", default="RBF", choices=["RBF", "RQ", "Matern12", "Matern32", "Matern52"], help="Pick a kernel",)
+    parser.add_argument("--kernel", default="RQ", choices=["RBF", "RQ", "Matern12", "Matern32", "Matern52"], help="Pick a kernel",)
     parser.add_argument("--no_spectral_conv", action="store_false",  dest="spectral_conv", help="Don't use spectral normalization on the convolutions",)
     parser.add_argument( "--adaptive_conformal", action="store_true", help="adaptive conformal")
     parser.add_argument("--no_spectral_bn", action="store_false", dest="spectral_bn", help="Don't use spectral normalization on the batch normalization layers",)
@@ -245,11 +246,14 @@ def parse_arguments():
 # SNGP: BETA: 0.1 - 0.005, TEMPERATURE: 0.01 - 1, EPOCHS: 30-50, log
 
 if __name__ == "__main__":
+
     args = parse_arguments()
     device = "cuda" if torch.cuda.is_available() else "cpu"
+    #seeds = [23]
     seeds = [1, 23, 42, 202, 2024]
-
     repeat_experiment(args, seeds, main)
+
+    # ["RBF", "RQ", "Matern12", "Matern32", "Matern52"]
 
     # wandb.login()
     # # Step 1: Define a sweep
@@ -257,14 +261,13 @@ if __name__ == "__main__":
     #     'method': 'grid',
     #     'metric': {'name': 'loss', 'goal': 'minimize'},
     #     'parameters': {
-    #         'beta': {"values": [0.005, 0.1, 0.05, 0.5]},
-    #         'temperature': {"values": [0.01, 0.1, 1]},
-    #         'size_loss_form': {'values': ["identity", "log"]},
+    #         'n_inducing_points': {"values": [5, 10, 15, 20, 25, 30, 35, 40] },
+    #         "kernel": {"values": ["Matern52"] } # , "RQ", "Matern12", "Matern32", "Matern52"
     #     }
     # }
-    # project_name = "sngp" if args.sngp else "ipgp"
+    # project_name = "sngp_num_inducing_points" if args.sngp else "ipgp_num_inducing_points_V2"
     # sweep_id = wandb.sweep(sweep=sweep_config, project=project_name)
-    # wandb.agent(sweep_id, function=partial(repeat_experiment, args, seeds, main), count=24)
+    # wandb.agent(sweep_id, function=partial(repeat_experiment, args, seeds, main), count=8)
 
 
 

@@ -4,27 +4,22 @@ import torch.nn.functional as F
 from gpytorch.mlls import VariationalELBO
 from gpytorch.likelihoods import SoftmaxLikelihood
 from due import dkl
-from due.convnext import SimpleMLP # SimpleConvNet, SimpleResnet
+from due.convnext import SimpleMLP, SimpleResnet # SimpleConvNet,
 from lib.evaluate_cp import ConformalTrainingLoss
 from sngp_wrapper.covert_utils import replace_layer_with_gaussian, convert_to_sn_my
 import os
-
-NUM_WORKERS = os.cpu_count()
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
-os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
-torch.backends.cudnn.benchmark = True
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 def build_model(args, num_classes, train_dataset):
     if args.sngp:
         model = SimpleMLP(num_classes=args.number_of_class)
-        #model = SimpleResnet(num_classes=args.number_of_class)
+        # model = SimpleResnet(num_classes=args.number_of_class)
         GP_KWARGS = {
             'num_inducing': 256,
             'gp_scale': 1.0,
             'gp_bias': 0.,
-            'gp_kernel_type': 'gaussian',
+            'gp_kernel_type': 'gaussian', # gaussian
             'gp_input_normalization': True,
             'gp_cov_discount_factor': -1,
             'gp_cov_ridge_penalty': 1.,

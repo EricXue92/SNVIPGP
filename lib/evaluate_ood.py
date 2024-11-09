@@ -46,6 +46,12 @@ def loop_over_dataloader(model, likelihood, dataloader):
                 output, uncertainty = model(data, kwargs={"update_precision_matrix": False,
                                                           "return_covariance": True} )
                 uncertainty = torch.diag(uncertainty)
+                # Dempster-Shafer uncertainty for SNGP
+                # From: https://github.com/google/uncertainty-baselines/blob/main/baselines/cifar/ood_utils.py#L22
+                # num_classes = output.shape[1]
+                # belief_mass = output.exp().sum(1)
+                # uncertainty = num_classes / (belief_mass + num_classes)
+
                 # uncertainty = 1 - torch.max(output, dim=-1)[0]
             else:
                 with gpytorch.settings.num_likelihood_samples(32):
