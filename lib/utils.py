@@ -14,21 +14,23 @@ import pandas as pd
 import time
 import seaborn as sns
 sns.set(style="white", font_scale=2)
+from matplotlib.ticker import MaxNLocator
 
 def repeat_experiment(args, seeds, main_fn):
     # run = wandb.init()
     result_dict = defaultdict(list)
-    tag_name = f"sngp{int(args.sngp)}_epoch{args.epochs}_{args.dataset}_{args.learning_rate}_{args.coeff}_{args.kernel}.csv"
+    if args.sngp:
+        tag_name = f"sngp{int(args.sngp)}_epoch{args.epochs}_{args.dataset}_{args.learning_rate}_{args.batch_size}.csv"
+    else:
+        tag_name = f"sngp{int(args.sngp)}_epoch{args.epochs}_{args.dataset}_{args.learning_rate}_{args.batch_size}_{args.kernel}_{args.n_inducing_points}.csv"
     # tag_name = f"sngp{int(args.sngp)}_epoch{args.epochs}_dataset{args.dataset}_learning_rate{args.learning_rate}.csv"
     parent_name = "results_conformal" if args.conformal_training else "results_normal"
-
     start_time = time.time()
     for seed in seeds:
         set_seed(seed)
         one_result = main_fn(args)
         for k, v in one_result.items():
             result_dict[k].append(v)
-
     end_time = time.time()
     run_time = end_time - start_time
     print(f"Run time: {run_time:.2f}s")
@@ -76,6 +78,8 @@ def plot_loss_curves(results):
     plt.subplot(1, 2, 2)
     plt.plot(epochs, accuracy, label="train_accuracy")
     plt.plot(epochs, test_accuracy, label="val_accuracy")
+    ax = plt.gca()  # Get current axis
+    ax.xaxis.set_major_locator(MaxNLocator(integer=True))
     plt.title("Accuracy")
     plt.xlabel("Epochs")
     plt.legend()

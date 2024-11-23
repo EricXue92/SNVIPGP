@@ -6,7 +6,7 @@ import os
 from due.convnext import ConvNextGP
 import torchvision
 from torchvision.transforms import v2
-# from sngp_wrapper.covert_utils import convert_to_sn_my
+from sngp_wrapper.covert_utils import convert_to_sn_my
 import clip
 
 
@@ -19,7 +19,6 @@ IMAGENET_CONVNEXT_STD = [0.229, 0.224, 0.225]
 #     transforms.ToTensor(),  # Convert to tensor
 #     transforms.Normalize(mean=IMAGENET_CONVNEXT_MEAN, std=IMAGENET_CONVNEXT_STD)  # Normalize
 # ])
-
 TRANSFORMS = transforms.Compose([
     transforms.Resize(232, interpolation=transforms.InterpolationMode.BILINEAR),  # Resize to 232x232
     transforms.CenterCrop(224),  # Central crop to 224x224
@@ -80,7 +79,7 @@ def retrieve_model(model_name):
         model = ConvNextGP(num_classes=None).cuda()
     else:
         model, _ = clip.load("ViT-L/14@336px", device=torch.device("cuda"))
-
+    # Constraint SN
     # model = convert_to_sn_my(model, spec_norm_replace_list, coeff)
     return model
 
@@ -132,27 +131,27 @@ def process_dataset(get_dataset_func, model, output_dir, dataset_name):
     save_features(model, train_loader, os.path.join(output_dir, "train"), dataset_name)
     save_features(model, test_loader, os.path.join(output_dir, "test"), dataset_name)
 
-if __name__ == "__main__":
-
-    config = datasets_config["CIFAR10"]  # Use "CIFAR10", "SVHN", "Brain_tumors", or "Alzheimer"
-    model_name = "convnext"
-    model = retrieve_model(model_name=model_name)
-
-    output_dir = f"./data_feature/{config.dataset_name}"
-
-    if config.dataset_name == "Brain_tumors" or config.dataset_name == "Alzheimer":
-        data = ImageFolderWithPaths(root=config.image_path, transform=get_transform(model_name=model_name))
-        dataloader = DataLoader(data, batch_size=64, shuffle=False, num_workers=4, pin_memory=True)
-        save_features(model, dataloader, output_dir, dataset_name=config.dataset_name)
-
-    elif config.dataset_name == "CIFAR10":
-        process_dataset(get_cifar10_dataset, model, output_dir, config.dataset_name)
-
-    elif config.dataset_name == "SVHN":
-        process_dataset(get_svhm_dataset, model, output_dir, config.dataset_name)
-
-    else:
-        raise ValueError("Unknown dataset")
+# if __name__ == "__main__":
+#
+#     config = datasets_config["SVHN"]  # Use "CIFAR10", "SVHN", "Brain_tumors", or "Alzheimer"
+#     model_name = "convnext"
+#     model = retrieve_model(model_name=model_name)
+#
+#     output_dir = f"./data_feature/{config.dataset_name}"
+#
+#     if config.dataset_name == "Brain_tumors" or config.dataset_name == "Alzheimer":
+#         data = ImageFolderWithPaths(root=config.image_path, transform=get_transform(model_name=model_name))
+#         dataloader = DataLoader(data, batch_size=64, shuffle=False, num_workers=4, pin_memory=True)
+#         save_features(model, dataloader, output_dir, dataset_name=config.dataset_name)
+#
+#     elif config.dataset_name == "CIFAR10":
+#         process_dataset(get_cifar10_dataset, model, output_dir, config.dataset_name)
+#
+#     elif config.dataset_name == "SVHN":
+#         process_dataset(get_svhm_dataset, model, output_dir, config.dataset_name)
+#
+#     else:
+#         raise ValueError("Unknown dataset")
 
 
 

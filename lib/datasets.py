@@ -20,7 +20,6 @@ class TransformedDataset(Dataset):
 
 class FeatureDataset(Dataset):
     def __init__(self, feature_dir):
-        # Initialize the dataset by loading all feature file paths
         self.feature_paths = glob.glob(os.path.join(feature_dir, '**/*.pt'), recursive=True)
         if "Brain_tumors" in feature_dir:
             self.label_map = {"glioma_tumor":0, "meningioma_tumor": 1, "normal": 2, "pituitary_tumor": 3}
@@ -33,8 +32,6 @@ class FeatureDataset(Dataset):
     def __getitem__(self, idx):
         feature_path = self.feature_paths[idx]
         feature = torch.load(feature_path).float()
-        # os.path.dirname: Return the directory name of pathname path.
-        # os.path.basename: retrieves the last part of a path
         label = os.path.basename(os.path.dirname(feature_path))
         return feature, self.label_map[label]
 

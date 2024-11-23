@@ -12,7 +12,6 @@ def random_ortho(n, m):
     q, _ = torch.linalg.qr(torch.randn(n, m))
     return q
 
-
 class RandomFourierFeatures(nn.Module):
     def __init__(self, in_dim, num_random_features, feature_scale=None):
         super().__init__()

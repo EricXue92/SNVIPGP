@@ -1,3 +1,4 @@
+import os
 import argparse
 import torch
 import torch.nn.functional as F
@@ -6,21 +7,20 @@ from lib.datasets import get_feature_dataset
 from lib.evaluate_ood import get_ood_metrics
 from lib.utils import get_results_directory, accuracy_fn, repeat_experiment, plot_loss_curves
 from lib.evaluate_cp import conformal_evaluate, ConformalTrainingLoss, tps
-from earlystopping import EarlyStopping
+# from earlystopping import EarlyStopping
 from torch.utils.data import DataLoader
 import json
 import operator
-import os
+
 from builder_model import build_model
 
 import wandb
 from functools import partial
 
 NUM_WORKERS = os.cpu_count()
-# os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+
 # export CUDA_VISIBLE_DEVICES=1
 torch.backends.cudnn.benchmark = True
-
 
 def main(args):
     results_dir = get_results_directory(args.output_dir)
@@ -29,8 +29,8 @@ def main(args):
     # args.temperature = wandb.config.temperature
     # args.beta = wandb.config.beta
     # args.size_loss_form = wandb.config.size_loss_form
-    # args.learning_rate = wandb.config.learning_rate
 
+    # args.learning_rate = wandb.config.learning_rate
     # args.n_inducing_points = wandb.config.n_inducing_points
     # args.kernel = wandb.config.kernel
 
@@ -46,13 +46,14 @@ def main(args):
     print(f"Training with:\n{args_json}")
 
     model, likelihood, loss_fn = build_model(args=args, num_classes=num_classes, train_dataset=train_dataset)
-
     parameters = [ {'params': model.parameters(), 'lr': args.learning_rate} ]
     if not args.sngp:
         parameters.append({"params": likelihood.parameters(), 'lr': args.learning_rate})
 
-    optimizer = torch.optim.Adam(parameters, weight_decay=args.weight_decay)
-    #optimizer = torch.optim.AdamW(parameters, weight_decay=args.weight_decay)
+    ####
+    #optimizer = torch.optim.Adam(parameters, weight_decay=args.weight_decay) #For CIFAR10
+    # optimizer = torch.optim.AdamW(parameters, weight_decay=args.weight_decay)
+    optimizer = torch.optim.AdamW(parameters)
 
     training_steps = len(train_dataset) // args.batch_size * args.epochs
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=training_steps)
@@ -75,6 +76,8 @@ def main(args):
         model.train()
         if not args.sngp and likelihood is not None:
             likelihood.train()
+
+        # accumulation_steps = 2
         for batch_idx, (X, y) in enumerate(train_loader):
             X, y = X.to(device), y.to(device)
             y_pred = model(X)
@@ -85,8 +88,8 @@ def main(args):
                 y_temp = y_pred.to_data_independent_dist()
                 y_temp = likelihood(y_temp).probs.mean(0)
                 loss_size = CP_size_fn(y_temp, y)
-                loss = loss_cn + loss_size
-                print(f"Total loss: {(loss.item() + loss_size):.4f} | ELBO: {loss_cn.item():.4f} | Size loss: {loss_size:.4f}")
+                loss = (loss_cn + loss_size)
+                print(f"Total loss: {loss.item():.4f} | ELBO: {loss_cn.item():.4f} | Size loss: {loss_size:.4f}")
             else:
                 loss = loss_fn(y_pred, y)
 
@@ -94,7 +97,6 @@ def main(args):
 
             y_pred = simple_transform(args, y_pred)
             _, y_pred = y_pred.max(1)
-
             train_acc += accuracy_fn(y_true=y, y_pred=y_pred)
 
             optimizer.zero_grad()
@@ -142,27 +144,26 @@ def main(args):
     learning_curve = {"train_loss": [], "train_acc": [], "val_loss": [], "val_acc": [] }
 
     # early_stopping = EarlyStopping(patience=5, verbose=True)
-
     for epoch in range(args.epochs):
         model.classifier.reset_covariance_matrix() if args.sngp else None
         print(f"\nEpoch: {epoch + 1}/{args.epochs}\n {'-' * 40}")
         train_loss, train_acc = train_step(model, train_loader, loss_fn, optimizer, accuracy_fn, device)
         learning_curve["train_loss"].append(train_loss)
         learning_curve["train_acc"].append(train_acc)
+
         val_loss, val_acc, val_smx, val_labels = test_step("Validation", model, val_loader, accuracy_fn, device)
         learning_curve["val_loss"].append(val_loss)
         learning_curve["val_acc"].append(val_acc)
 
         # early_stopping(val_loss)
-        #
         # if early_stopping.early_stop:
         #     print("Early stopping triggered. Stopping training.")
         #     break
 
         _, auroc, aupr = get_ood_metrics(args.dataset, args.OOD, model, likelihood)
         print(f"Train -- OoD Metrics - AUROC: {auroc:.4f} | AUPR: {aupr:.4f}")
-        _, coverage, inefficiency = tps(cal_smx=val_smx, val_smx=val_smx, cal_labels=val_labels, val_labels=val_labels,
-                                  n=len(val_labels), alpha=args.alpha)
+
+        _, coverage, inefficiency = tps(cal_smx=val_smx, val_smx=val_smx, cal_labels=val_labels, val_labels=val_labels, n=len(val_labels), alpha=args.alpha)
 
         print(f"Train -- Coverage: {coverage:.4f} | Inefficiency: {inefficiency:.4f}")
 
@@ -201,12 +202,17 @@ def main(args):
     _, coverage, inefficiency = tps(cal_smx=test_smx, val_smx=test_smx, cal_labels=test_labels, val_labels=test_labels, n=len(test_labels), alpha=args.alpha)
     print(f"Test -- Coverage: {coverage:.4f} | Inefficiency: {inefficiency:.4f}")
     result["auroc"], result["aupr"], result['acc'], result['loss'], result['ineff'] = auroc, aupr, test_acc, test_loss, inefficiency
+
     coverage_mean, ineff_list = conformal_evaluate(model, likelihood, dataset=args.dataset, adaptive_flag=args.adaptive_conformal, alpha=args.alpha)
     result["coverage_mean"], result["ineff_list"] = coverage_mean, ineff_list
 
+    #
     # wandb.log({"epochs": args.epochs, "test_loss": test_loss, "test_Acc": test_acc, "test_auroc": auroc, "test_aupr": aupr,
-    #            "test_ineff":inefficiency, "avg_coverage":coverage_mean, "ineff_list":ineff_list, "kernel":args.kernel,
-    #            "learning_rate":args.learning_rate})
+    #            "test_ineff":inefficiency,  "beta":args.beta, "avg_coverage":coverage_mean, "ineff_list":ineff_list,
+    #            "temperature":args.temperature, "size_loss_form":args.size_loss_form}) #
+
+    # wandb.log({"epochs": args.epochs, "test_loss": test_loss, "test_Acc": test_acc, "test_auroc": auroc, "test_aupr": aupr,
+    #            "test_ineff":inefficiency, "avg_coverage":coverage_mean, "ineff_list":ineff_list, "kernel":args.kernel, "n_inducing_points":args.n_inducing_points})
 
     writer.close()
     plot_loss_curves(learning_curve)
@@ -214,20 +220,19 @@ def main(args):
 
 def parse_arguments():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--learning_rate", type=float, default=1e-3, help="Learning rate") # 3e-3, 1e-3 # 0.01
-    parser.add_argument("--epochs", type=int, default=50, help="Number of epochs to train for")
-    parser.add_argument("--batch_size", type=int, default=128, help="Batch size to use for training") # 32
-    parser.add_argument("--number_of_class", type=int, default=10) # 4, 10
-    parser.add_argument("--alpha", type=float, default=0.01, help="Conformal Rate" )
-    parser.add_argument("--dataset", default="CIFAR10", choices=["Brain_tumors", "Alzheimer",'CIFAR10', "SVHN", "CIFAR100"])
-    parser.add_argument("--OOD", default="SVHN", choices=["Brain_tumors", "Alzheimer", 'CIFAR10', 'CIFAR100', "SVHN"])
-    parser.add_argument("--n_inducing_points", type=int, default=10, help="Number of inducing points") # 10, 12
+    parser.add_argument("--learning_rate", type=float, default=3e-3, help="Learning rate") # 3e-3, 1e-3 # 0.01
+    parser.add_argument("--epochs", type=int, default=30, help="Number of epochs to train for")
+    parser.add_argument("--batch_size", type=int, default=32, help="Batch size to use for training")
+    parser.add_argument("--alpha", type=float, default=0.05, help="Conformal Rate") # 0.05 or 0.01
+    parser.add_argument("--dataset", default="Brain_tumors", choices=["Brain_tumors", "Alzheimer",'CIFAR10', "SVHN", "CIFAR100"])
+    parser.add_argument("--OOD", default="Alzheimer", choices=["Brain_tumors", "Alzheimer", 'CIFAR10', 'CIFAR100', "SVHN"])
+    parser.add_argument("--n_inducing_points", type=int, default=12, help="Number of inducing points") # 10, 12
     parser.add_argument("--beta", type=float, default=0.1, help="Weight for conformal training loss")
     parser.add_argument("--temperature", type=float, default=0.01, help="Temperature for conformal training loss")
-    parser.add_argument("--sngp", action="store_true", help="Use SNGP (RFF and Laplace) instead of a DUE (sparse GP)")
+    parser.add_argument("--sngp", action="store_false", help="Use SNGP or not")
     parser.add_argument("--conformal_training", action="store_true", help="conformal training or not")
     parser.add_argument("--weight_decay", type=float, default=1e-4, help="Weight decay") # 5e-4
-    parser.add_argument("--kernel", default="RQ", choices=["RBF", "RQ", "Matern12", "Matern32", "Matern52"], help="Pick a kernel",)
+    parser.add_argument("--kernel", default="RBF", choices=["RBF", "RQ", "Matern12", "Matern32", "Matern52"], help="Pick a kernel",)
     parser.add_argument("--no_spectral_conv", action="store_false",  dest="spectral_conv", help="Don't use spectral normalization on the convolutions",)
     parser.add_argument( "--adaptive_conformal", action="store_true", help="adaptive conformal")
     parser.add_argument("--no_spectral_bn", action="store_false", dest="spectral_bn", help="Don't use spectral normalization on the batch normalization layers",)
@@ -235,9 +240,9 @@ def parse_arguments():
     parser.add_argument("--coeff", type=float, default=0.95, help="Spectral normalization coefficient") # 3
     parser.add_argument("--n_power_iterations", default=1, type=int, help="Number of power iterations")
     parser.add_argument("--output_dir", default="./default", type=str, help="Specify output directory")
-    parser.add_argument("--size_loss_form", default="identity", type=str, help="identity or log")
+    parser.add_argument("--size_loss_form", default="log", type=str, help="identity or log")
     parser.add_argument("--spec_norm_replace_list", nargs='+', default=["Linear", "Conv2D"], type=str, help="List of specifications to replace" )
-
+    parser.add_argument("--spectral_normalization", action="store_false", help="Use spectral normalization or not")
     args = parser.parse_args()
     return args
 
@@ -246,31 +251,45 @@ def parse_arguments():
 # SNGP: BETA: 0.1 - 0.005, TEMPERATURE: 0.01 - 1, EPOCHS: 30-50, log
 
 if __name__ == "__main__":
-
     args = parse_arguments()
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    #seeds = [23]
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     seeds = [1, 23, 42, 202, 2024]
+
     repeat_experiment(args, seeds, main)
 
-    # ["RBF", "RQ", "Matern12", "Matern32", "Matern52"]
-
+    # seeds = [202]
+    # #
     # wandb.login()
-    # # Step 1: Define a sweep
+    # # # Step 1: Define a sweep
     # sweep_config = {
     #     'method': 'grid',
     #     'metric': {'name': 'loss', 'goal': 'minimize'},
     #     'parameters': {
-    #         'n_inducing_points': {"values": [5, 10, 15, 20, 25, 30, 35, 40] },
-    #         "kernel": {"values": ["Matern52"] } # , "RQ", "Matern12", "Matern32", "Matern52"
+    #         'temperature': {"values":  [0.01, 0.1, 1] },
+    #         "beta": {"values": [0.005, 0.1, 0.05, 0.5] }, # 0.005, 0.1, 0.05,
+    #         "size_loss_form": {"values": ["log", "identity"]}, #
     #     }
     # }
-    # project_name = "sngp_num_inducing_points" if args.sngp else "ipgp_num_inducing_points_V2"
+
+    # sweep_config = {
+    #     'method': 'grid',
+    #     'metric': {'name': 'loss', 'goal': 'minimize'},
+    #     'parameters': {
+    #         'n_inducing_points': {"values": [10, 20, 30, 40, 50] },
+    #         "kernel": {"values": [ "RBF", "RQ", "Matern12" ] },    # "Matern32", "Matern52" batch_size = 64
+    #     }
+    # }
+    #
+    # if args.conformal_training:
+    #     if args.sngp:
+    #         project_name = f"sngpct_{args.dataset}"
+    #     else:
+    #         project_name = f"ipgpct_RBF30_202_{args.dataset}"
+    # else:
+    #     if args.sngp:
+    #         project_name = f"sngp_{args.dataset}"
+    #     else:
+    #         project_name = f"ipgp_{args.dataset}"
+    #
     # sweep_id = wandb.sweep(sweep=sweep_config, project=project_name)
-    # wandb.agent(sweep_id, function=partial(repeat_experiment, args, seeds, main), count=8)
-
-
-
-
-
-
+    # wandb.agent(sweep_id, function=partial(repeat_experiment, args, seeds, main), count=24)
