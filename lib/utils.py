@@ -20,10 +20,14 @@ def repeat_experiment(args, seeds, main_fn):
     # run = wandb.init()
     result_dict = defaultdict(list)
     if args.sngp:
-        tag_name = f"sngp{int(args.sngp)}_epoch{args.epochs}_{args.dataset}_{args.learning_rate}_{args.batch_size}.csv"
+        tag_name = f"sngp_epoch_{args.epochs}_{args.dataset}_{args.learning_rate}_{args.batch_size}_sn{str(int(args.spectral_normalization))}.csv"
+    elif args.snipgp:
+        tag_name = f"snipgp_epoch_{args.epochs}_{args.dataset}_{args.learning_rate}_{args.batch_size}_{args.kernel}_{args.n_inducing_points}_sn{str(int(args.spectral_normalization))}.csv"
+    elif args.snn:
+        tag_name = f"snn_epoch{args.epochs}_{args.dataset}_{args.learning_rate}_{args.batch_size}_sn{str(int(args.spectral_normalization))}.csv"
     else:
-        tag_name = f"sngp{int(args.sngp)}_epoch{args.epochs}_{args.dataset}_{args.learning_rate}_{args.batch_size}_{args.kernel}_{args.n_inducing_points}.csv"
-    # tag_name = f"sngp{int(args.sngp)}_epoch{args.epochs}_dataset{args.dataset}_learning_rate{args.learning_rate}.csv"
+        raise ValueError("Invalid model type")
+
     parent_name = "results_conformal" if args.conformal_training else "results_normal"
     start_time = time.time()
     for seed in seeds:

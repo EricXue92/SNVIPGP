@@ -47,13 +47,14 @@ def main(args):
 
     model, likelihood, loss_fn = build_model(args=args, num_classes=num_classes, train_dataset=train_dataset)
     parameters = [ {'params': model.parameters(), 'lr': args.learning_rate} ]
-    if not args.sngp:
+
+    if args.snipgp:
         parameters.append({"params": likelihood.parameters(), 'lr': args.learning_rate})
 
-    ####
+    #######
     #optimizer = torch.optim.Adam(parameters, weight_decay=args.weight_decay) #For CIFAR10
-    # optimizer = torch.optim.AdamW(parameters, weight_decay=args.weight_decay)
-    optimizer = torch.optim.AdamW(parameters)
+    #optimizer = torch.optim.AdamW(parameters, weight_decay=args.weight_decay)
+    optimizer = torch.optim.AdamW(parameters) # For Brain_tumors
 
     training_steps = len(train_dataset) // args.batch_size * args.epochs
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=training_steps)
@@ -65,7 +66,7 @@ def main(args):
     test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False, num_workers=NUM_WORKERS, pin_memory=True)
 
     def simple_transform(args, outputs):
-        if not args.sngp:
+        if args.snipgp:
             outputs = outputs.to_data_independent_dist()
             outputs = likelihood(outputs).probs.mean(0)
         return outputs
@@ -74,16 +75,15 @@ def main(args):
         train_loss, train_acc = 0, 0
         model = model.to(device)
         model.train()
-        if not args.sngp and likelihood is not None:
+        if args.snipgp and likelihood is not None:
             likelihood.train()
 
-        # accumulation_steps = 2
         for batch_idx, (X, y) in enumerate(train_loader):
             X, y = X.to(device), y.to(device)
             y_pred = model(X)
-            if args.conformal_training and not args.sngp:
+            if args.conformal_training and args.snipgp:
                 CP_size_fn = ConformalTrainingLoss(alpha=args.alpha, beta=args.beta,
-                                                   temperature=args.temperature, sngp_flag=False, args=args)
+                                                   temperature=args.temperature, args=args)
                 loss_cn = loss_fn(y_pred, y)
                 y_temp = y_pred.to_data_independent_dist()
                 y_temp = likelihood(y_temp).probs.mean(0)
@@ -94,15 +94,12 @@ def main(args):
                 loss = loss_fn(y_pred, y)
 
             train_loss += loss.item()
-
             y_pred = simple_transform(args, y_pred)
             _, y_pred = y_pred.max(1)
             train_acc += accuracy_fn(y_true=y, y_pred=y_pred)
-
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-
         scheduler.step()
         train_loss /= len(data_loader)
         train_acc /= len(data_loader)
@@ -113,14 +110,14 @@ def main(args):
         test_loss, test_acc = 0, 0
         model.to(device)
         model.eval()
-        if not args.sngp:
+        if args.snipgp:
             likelihood.eval()
         prob_list, target_list = [], []
         with torch.no_grad():
             for X, y in data_loader:
                 X, y = X.to(device), y.to(device)
                 y_pred = model(X)
-                if args.sngp:
+                if args.sngp or args.snn:
                     loss = F.cross_entropy(y_pred, y)
                 else:
                     loss = -likelihood.expected_log_prob(y, y_pred).mean()
@@ -140,68 +137,68 @@ def main(args):
         prob = torch.cat(prob_list, dim=0)
         target = torch.cat(target_list, dim=0)
         return test_loss, test_acc, prob, target
-
     learning_curve = {"train_loss": [], "train_acc": [], "val_loss": [], "val_acc": [] }
-
-    # early_stopping = EarlyStopping(patience=5, verbose=True)
     for epoch in range(args.epochs):
-        model.classifier.reset_covariance_matrix() if args.sngp else None
+        if args.sngp:
+            model.classifier.reset_covariance_matrix() # if args.sngp else None
         print(f"\nEpoch: {epoch + 1}/{args.epochs}\n {'-' * 40}")
         train_loss, train_acc = train_step(model, train_loader, loss_fn, optimizer, accuracy_fn, device)
         learning_curve["train_loss"].append(train_loss)
         learning_curve["train_acc"].append(train_acc)
-
         val_loss, val_acc, val_smx, val_labels = test_step("Validation", model, val_loader, accuracy_fn, device)
         learning_curve["val_loss"].append(val_loss)
         learning_curve["val_acc"].append(val_acc)
 
-        # early_stopping(val_loss)
-        # if early_stopping.early_stop:
-        #     print("Early stopping triggered. Stopping training.")
-        #     break
+        if not args.snn:
+            _, auroc, aupr = get_ood_metrics(args.dataset, args.OOD, model, likelihood)
+            print(f"Train -- OoD Metrics - AUROC: {auroc:.4f} | AUPR: {aupr:.4f}")
 
-        _, auroc, aupr = get_ood_metrics(args.dataset, args.OOD, model, likelihood)
-        print(f"Train -- OoD Metrics - AUROC: {auroc:.4f} | AUPR: {aupr:.4f}")
-
-        _, coverage, inefficiency = tps(cal_smx=val_smx, val_smx=val_smx, cal_labels=val_labels, val_labels=val_labels, n=len(val_labels), alpha=args.alpha)
-
+        _, coverage, inefficiency = tps(cal_smx=val_smx, val_smx=val_smx, cal_labels=val_labels,
+                                        val_labels=val_labels, n=len(val_labels), alpha=args.alpha)
         print(f"Train -- Coverage: {coverage:.4f} | Inefficiency: {inefficiency:.4f}")
 
         def save_best_metric(metric_name, metric_value, best_metric):
             compare_fn = operator.gt if metric_name == "auroc" else operator.lt
-            if compare_fn(metric_value, best_metric): ## auroc: greater is better, inefficiency: lower is better
+            if compare_fn(metric_value, best_metric):
                 best_metric = metric_value
                 model_state = {
                     'model': model.state_dict(),
                     'optimizer': optimizer.state_dict(),
                      metric_name: best_metric,
-                    'likelihood': likelihood.state_dict() if not args.sngp else None,
+                    'likelihood': likelihood.state_dict() if args.snipgp else None,
                 }
                 torch.save(model_state, results_dir / f"best_model_{metric_name}.pth")
                 print(f"\nNew best {metric_name}: {best_metric:.4f}, save_path {results_dir / f"best_model_{metric_name}.pth"}")
             return best_metric
-        best_auroc = save_best_metric("auroc", auroc, best_auroc)
+
+        if not args.snn:
+            best_auroc = save_best_metric("auroc", auroc, best_auroc)
         best_inefficiency = save_best_metric("inefficiency", inefficiency, best_inefficiency)
 
     def load_best_state(metric_name, model, likelihood):
         state = torch.load(results_dir / f"best_model_{metric_name}.pth")
         model.load_state_dict(state['model'], strict=False)
-        likelihood.load_state_dict(state['likelihood']) if not args.sngp else None
+        likelihood.load_state_dict(state['likelihood']) if args.snipgp else None
 
-    load_best_state("auroc", model, likelihood)
-    _, auroc, aupr = get_ood_metrics(args.dataset, args.OOD, model, likelihood)
-    print(f"Test --- OoD Metrics - AUROC: {auroc:.4f} | AUPR: {aupr:.4f}")
+    if not args.snn:
+        load_best_state("auroc", model, likelihood)
+        _, auroc, aupr = get_ood_metrics(args.dataset, args.OOD, model, likelihood)
+        print(f"Test --- OoD Metrics - AUROC: {auroc:.4f} | AUPR: {aupr:.4f}")
 
     load_best_state("inefficiency", model, likelihood)
     model.eval()
-    likelihood.eval() if not args.sngp else None
+    likelihood.eval() if args.snipgp else None
 
     result = {}
     test_loss, test_acc, test_smx, test_labels = test_step("Test", model, test_loader, accuracy_fn, device)
 
     _, coverage, inefficiency = tps(cal_smx=test_smx, val_smx=test_smx, cal_labels=test_labels, val_labels=test_labels, n=len(test_labels), alpha=args.alpha)
     print(f"Test -- Coverage: {coverage:.4f} | Inefficiency: {inefficiency:.4f}")
-    result["auroc"], result["aupr"], result['acc'], result['loss'], result['ineff'] = auroc, aupr, test_acc, test_loss, inefficiency
+
+    if not args.snn:
+        result["auroc"], result["aupr"], result['acc'], result['loss'], result['ineff'] = auroc, aupr, test_acc, test_loss, inefficiency
+    else:
+        result['acc'], result['loss'], result['ineff'] = test_acc, test_loss, inefficiency
 
     coverage_mean, ineff_list = conformal_evaluate(model, likelihood, dataset=args.dataset, adaptive_flag=args.adaptive_conformal, alpha=args.alpha)
     result["coverage_mean"], result["ineff_list"] = coverage_mean, ineff_list
@@ -223,38 +220,37 @@ def parse_arguments():
     parser.add_argument("--learning_rate", type=float, default=3e-3, help="Learning rate") # 3e-3, 1e-3 # 0.01
     parser.add_argument("--epochs", type=int, default=30, help="Number of epochs to train for")
     parser.add_argument("--batch_size", type=int, default=32, help="Batch size to use for training")
-    parser.add_argument("--alpha", type=float, default=0.05, help="Conformal Rate") # 0.05 or 0.01
+    parser.add_argument("--alpha", type=float, default=0.05, help="Conformal Rate") #####  0.05 or 0.01
     parser.add_argument("--dataset", default="Brain_tumors", choices=["Brain_tumors", "Alzheimer",'CIFAR10', "SVHN", "CIFAR100"])
     parser.add_argument("--OOD", default="Alzheimer", choices=["Brain_tumors", "Alzheimer", 'CIFAR10', 'CIFAR100', "SVHN"])
     parser.add_argument("--n_inducing_points", type=int, default=12, help="Number of inducing points") # 10, 12
-    parser.add_argument("--beta", type=float, default=0.1, help="Weight for conformal training loss")
-    parser.add_argument("--temperature", type=float, default=0.01, help="Temperature for conformal training loss")
-    parser.add_argument("--sngp", action="store_false", help="Use SNGP or not")
-    parser.add_argument("--conformal_training", action="store_true", help="conformal training or not")
-    parser.add_argument("--weight_decay", type=float, default=1e-4, help="Weight decay") # 5e-4
+    parser.add_argument("--beta", type=float, default=0.5, help="Weight for conformal training loss")
+    parser.add_argument("--temperature", type=float, default=0.1, help="Temperature for conformal training loss")
+    parser.add_argument("--snn", action="store_false", help="Use standard NN or not")
+    parser.add_argument("--sngp", action="store_true", help="Use SNGP or not")
+    parser.add_argument("--snipgp", action="store_true", help="Use SNIPGP or not")
+    parser.add_argument("--conformal_training", action="store_false", help="conformal training or not")
+    parser.add_argument("--weight_decay", type=float, default=1e-4, help="Weight decay") # 1e-4, 5e-4
     parser.add_argument("--kernel", default="RBF", choices=["RBF", "RQ", "Matern12", "Matern32", "Matern52"], help="Pick a kernel",)
     parser.add_argument("--no_spectral_conv", action="store_false",  dest="spectral_conv", help="Don't use spectral normalization on the convolutions",)
-    parser.add_argument( "--adaptive_conformal", action="store_true", help="adaptive conformal")
+    parser.add_argument( "--adaptive_conformal", action="store_false", help="adaptive conformal")
     parser.add_argument("--no_spectral_bn", action="store_false", dest="spectral_bn", help="Don't use spectral normalization on the batch normalization layers",)
-    # parser.add_argument("--seed", type=int, default=42, help="Seed to use for training")
     parser.add_argument("--coeff", type=float, default=0.95, help="Spectral normalization coefficient") # 3
     parser.add_argument("--n_power_iterations", default=1, type=int, help="Number of power iterations")
     parser.add_argument("--output_dir", default="./default", type=str, help="Specify output directory")
-    parser.add_argument("--size_loss_form", default="log", type=str, help="identity or log")
+    parser.add_argument("--size_loss_form", default="identity", type=str, help="identity or log")
     parser.add_argument("--spec_norm_replace_list", nargs='+', default=["Linear", "Conv2D"], type=str, help="List of specifications to replace" )
-    parser.add_argument("--spectral_normalization", action="store_false", help="Use spectral normalization or not")
+    parser.add_argument("--spectral_normalization", action="store_true", help="Use spectral normalization or not")
     args = parser.parse_args()
+    if sum([args.sngp, args.snipgp, args.snn]) != 1:
+        parser.error("Exactly one of --snn, --sngp or --snipgp must be set.")
     return args
-
-
-# IPGP: BETA: 0.1, TEMPERATURE: 0.01, EPOCHS: 40, identity
-# SNGP: BETA: 0.1 - 0.005, TEMPERATURE: 0.01 - 1, EPOCHS: 30-50, log
 
 if __name__ == "__main__":
     args = parse_arguments()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    seeds = [1, 23, 42, 202, 2024]
-
+    seeds = [1]
+    # seeds = [1, 23, 42, 202, 2024]
     repeat_experiment(args, seeds, main)
 
     # seeds = [202]
@@ -281,12 +277,12 @@ if __name__ == "__main__":
     # }
     #
     # if args.conformal_training:
-    #     if args.sngp:
+    #     if args.snipgp:
     #         project_name = f"sngpct_{args.dataset}"
     #     else:
     #         project_name = f"ipgpct_RBF30_202_{args.dataset}"
     # else:
-    #     if args.sngp:
+    #     if args.snipgp:
     #         project_name = f"sngp_{args.dataset}"
     #     else:
     #         project_name = f"ipgp_{args.dataset}"

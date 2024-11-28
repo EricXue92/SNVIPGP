@@ -17,9 +17,7 @@ class RandomFourierFeatures(nn.Module):
         super().__init__()
         if feature_scale is None:
             feature_scale = math.sqrt(num_random_features / 2)
-
         self.register_buffer("feature_scale", torch.tensor(feature_scale))
-
         if num_random_features <= in_dim:
             W = random_ortho(in_dim, num_random_features)
         else:

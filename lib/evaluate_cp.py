@@ -11,12 +11,11 @@ from lib.datasets import get_feature_dataset
 NUM_WORKERS = os.cpu_count()
 
 class ConformalTrainingLoss(nn.Module):
-    def __init__(self, alpha, beta, temperature, sngp_flag, args):
+    def __init__(self, alpha, beta, temperature, args):
         super().__init__()
         self.alpha = alpha
         self.beta = beta
         self.temperature = temperature
-        self.sngp_flag = sngp_flag
         self.args = args
 
     def forward(self, probabilities, y):
@@ -30,7 +29,8 @@ class ConformalTrainingLoss(nn.Module):
         else:
             raise ValueError("Invalid size loss form")
         size_loss = self.beta * size_loss
-        if self.sngp_flag:
+
+        if self.args.sngp or self.args.snn:
             fn_loss = F.cross_entropy(probabilities, y)
             total_loss = fn_loss + size_loss
             print(f"Total loss : {(size_loss.item() + fn_loss.item()):.4f} | Size loss: {size_loss.item():.4f} | Ce loss : {fn_loss.item():.4f}")
