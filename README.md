@@ -1,4 +1,4 @@
-# Inducing Point Gaussian Process with conformal training for out-of-distribution detection and conformal prediction 
+# An Integrated Framework for Conformal Prediction and Out-of-Distribution Detection
 
 
 &nbsp;
