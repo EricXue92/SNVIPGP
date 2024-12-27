@@ -2,4 +2,4 @@
 
 
 &nbsp;
-![The RFF-networks](FL.png)
+![A schematic illustration for distance-aware uncertainty quantification with conformal set and OOD detection](FL.png)
