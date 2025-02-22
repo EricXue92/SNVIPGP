@@ -256,8 +256,8 @@ def parse_arguments():
 if __name__ == "__main__":
     args = parse_arguments()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    # seeds = [23]
-    seeds = [1, 23, 42, 202, 2024]
+    seeds = [23]
+    #seeds = [1, 23, 42, 202, 2024]
     repeat_experiment(args, seeds, main)
     # #
     # seeds = [23]
