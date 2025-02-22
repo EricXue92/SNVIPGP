@@ -67,10 +67,36 @@ def get_cifar10_or_svhm(image_path: str = "./data_feature/CIFAR10"):
     train_data = torch.load(train_feature_path)
     train_representations, train_labels= train_data['features'], train_data['labels']
 
-    X_train, X_val, y_train, y_val = train_test_split(train_representations, train_labels , test_size=0.1, random_state=42)
+    X_train, X_val, y_train, y_val = train_test_split(train_representations, train_labels , test_size=0.1,
+                                                      stratify=train_labels, random_state=42)
     train_dataset, val_dataset = TensorDataset(X_train, y_train), TensorDataset(X_val, y_val)
 
     test_data = torch.load(test_feature_path)
+    test_representations, test_labels = test_data['features'], test_data['labels']
+    test_dataset = TensorDataset(test_representations, test_labels)
+
+    return input_size, num_classes, train_dataset, val_dataset, test_dataset
+
+def get_colorectal_or_breast_feature(image_path: str = "./data_feature/Colorectal_cancer"):
+    input_size, num_classes = 768, 8
+    dataset_name = os.path.basename(image_path)
+
+    train_feature_path = os.path.join(image_path, "train")
+    test_feature_path = os.path.join(image_path, "test")
+
+    train_feature_path = os.path.join(train_feature_path, f"{dataset_name}.pt")
+    test_feature_path = os.path.join(test_feature_path, f"{dataset_name}.pt")
+
+    if not (os.path.exists(train_feature_path) and os.path.exists(test_feature_path)):
+        raise FileNotFoundError(f"One or both files do not exist: {train_feature_path}, {test_feature_path}.")
+
+    train_data = torch.load(train_feature_path)
+    train_representations, train_labels= train_data['features'], train_data['labels']
+    X_train, X_val, y_train, y_val = train_test_split(train_representations, train_labels , test_size=0.1,
+                                                      stratify=train_labels, random_state=12) ###
+    train_dataset, val_dataset = TensorDataset(X_train, y_train), TensorDataset(X_val, y_val)
+    test_data = torch.load(test_feature_path)
+
     test_representations, test_labels = test_data['features'], test_data['labels']
     test_dataset = TensorDataset(test_representations, test_labels)
 
@@ -80,19 +106,21 @@ all_feature_datasets = {
     "Brain_tumors": lambda: get_tumors_feature(image_path="./data_feature/Brain_tumors"),
     "Alzheimer": lambda: get_tumors_feature(image_path="./data_feature/Alzheimer"),
     "CIFAR10": lambda: get_cifar10_or_svhm(image_path="./data_feature/CIFAR10"),
-    "SVHN": lambda: get_cifar10_or_svhm(image_path="./data_feature/SVHN")
+    "SVHN": lambda: get_cifar10_or_svhm(image_path="./data_feature/SVHN"),
+    "Colorectal": lambda: get_colorectal_or_breast_feature(image_path="./data_feature/Colorectal_cancer"),
+    "Breast": lambda: get_colorectal_or_breast_feature(image_path="./data_feature/Breast_cancer"),
 }
 
 def get_feature_dataset(dataset):
     return all_feature_datasets[dataset]
 
 # if __name__ == "__main__":
-#     temp = get_feature_dataset("CIFAR10")()
-#     input_size, num_classes, train_dataset, val_dataset, test_dataset = temp
-#     print(train_dataset[8])
-
-#     feauture_f = FeatureDataset('../data_feature/Brain_tumors')
-#     print("len(feauture_f):", len(feauture_f))
-#     print("feauture_f[0]:", feauture_f[0][0].shape, feauture_f[0][1])
+    # temp = get_feature_dataset("CIFAR10")()
+    # input_size, num_classes, train_dataset, val_dataset, test_dataset = temp
+    # print(train_dataset[8])
+    #
+    # feauture_f = FeatureDataset('../data_feature/Brain_tumors')
+    # print("len(feauture_f):", len(feauture_f))
+    # print("feauture_f[0]:", feauture_f[0][0].shape, feauture_f[0][1])
 
 

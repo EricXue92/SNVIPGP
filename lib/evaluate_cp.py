@@ -22,6 +22,7 @@ class ConformalTrainingLoss(nn.Module):
         conformity_score = probabilities[torch.arange(len(probabilities)), y]
         tau = torch.quantile(conformity_score, self.alpha)
         in_set_prob = F.sigmoid((probabilities - tau) / self.temperature)
+        print(f"in set prob: {in_set_prob}")
         if self.args.size_loss_form == 'log':
             size_loss = torch.log( torch.clamp(in_set_prob.sum(dim=1), min=1).mean(dim=0) )
         elif self.args.size_loss_form == 'identity':
@@ -91,6 +92,8 @@ def conformal_evaluate(model, likelihood, dataset, adaptive_flag, alpha):
         _, _, _, val_dataset, test_dataset = get_feature_dataset("SVHM")()
     elif dataset == 'CIFAR100':
         _, _, _, val_dataset, test_dataset = get_feature_dataset("CIFAR100")()
+    elif dataset == 'Colorectal':
+        _, _, _, val_dataset, test_dataset = get_feature_dataset("Colorectal")()
     else:
         print("Invalid dataset")
         return None, None

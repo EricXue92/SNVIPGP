@@ -20,11 +20,11 @@ def repeat_experiment(args, seeds, main_fn):
     # run = wandb.init()
     result_dict = defaultdict(list)
     if args.sngp:
-        tag_name = f"sngp_epoch_{args.epochs}_{args.dataset}_{args.learning_rate}_{args.batch_size}_sn{str(int(args.spectral_normalization))}.csv"
+        tag_name = f"sngp_epoch_{args.epochs}_{args.dataset}_{args.learning_rate}_{args.batch_size}_sn{str(int(args.spectral_normalization))}_{str(args.coeff)}.csv"
     elif args.snipgp:
-        tag_name = f"snipgp_epoch_{args.epochs}_{args.dataset}_{args.learning_rate}_{args.batch_size}_{args.kernel}_{args.n_inducing_points}_sn{str(int(args.spectral_normalization))}.csv"
+        tag_name = f"snipgp_epoch_{args.epochs}_{args.dataset}_{args.learning_rate}_{args.batch_size}_{args.kernel}_{args.n_inducing_points}_sn{str(int(args.spectral_normalization))}_{str(args.coeff)}.csv"
     elif args.snn:
-        tag_name = f"snn_epoch{args.epochs}_{args.dataset}_{args.learning_rate}_{args.batch_size}_sn{str(int(args.spectral_normalization))}.csv"
+        tag_name = f"snn_epoch{args.epochs}_{args.dataset}_{args.learning_rate}_{args.batch_size}_sn{str(int(args.spectral_normalization))}_{str(args.coeff)}.csv"
     else:
         raise ValueError("Invalid model type")
 

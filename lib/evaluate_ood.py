@@ -10,13 +10,17 @@ NUM_WORKERS = os.cpu_count()
 def prepare_ood_datasets(true_dataset, ood_dataset):
     # ood_dataset.transform = true_dataset.transform
     datasets = [true_dataset, ood_dataset]
+    print(f"True dataset Size: {len(true_dataset)} | OOD dataset Size: {len(ood_dataset)}")
+
     anomaly_targets = torch.cat(
         (torch.zeros(len(true_dataset)), torch.ones(len(ood_dataset)))
     )
     concat_datasets = ConcatDataset(datasets)
+
     dataloader = DataLoader(
         concat_datasets, batch_size=64, shuffle=False, num_workers=NUM_WORKERS, pin_memory=True
     )
+
     return dataloader, anomaly_targets
 
 def loop_over_dataloader(model, likelihood, dataloader):
@@ -25,12 +29,12 @@ def loop_over_dataloader(model, likelihood, dataloader):
         likelihood.eval()
     else:
         model.classifier.update_covariance_matrix()
+
     with torch.no_grad():
         scores = []
         accuracies = []
         for i, (data, target) in enumerate(dataloader):
-            data = data.cuda(non_blocking=True)
-            target = target.cuda(non_blocking=True)
+            data, target = data.cuda(), target.cuda()
             if likelihood is None:
                 # output: (batch_size, num_of_classes) (64, 4)
                 output, uncertainty = model(data, kwargs={"update_precision_matrix": False,
@@ -48,6 +52,8 @@ def loop_over_dataloader(model, likelihood, dataloader):
                     predictive_dist = likelihood(y_pred)
                     probs = predictive_dist.probs
                     output = probs.mean(0)
+
+                # uncertainty = -(output * output.log()).sum(1)
                     uncertainty = probs.var(0)
                 # uncertainty, max_indices = torch.max(uncertainty, dim=1)
                 uncertainty = torch.mean(uncertainty, dim=1)
@@ -76,8 +82,11 @@ def get_ood_metrics(in_dataset: object, out_dataset: object, model: object, like
     _, _, _, val_out_dataset, out_dataset = get_feature_dataset(out_dataset)()
     in_dataset = ConcatDataset([val_in_dataset, in_dataset])
     out_dataset = ConcatDataset([val_out_dataset, out_dataset])
+
     dataloader, anomaly_targets = prepare_ood_datasets(in_dataset, out_dataset)
+
     scores, accuracies = loop_over_dataloader(model, likelihood, dataloader)
+
     accuracy = np.mean(accuracies[:len(in_dataset)])
     assert len(anomaly_targets) == len(scores), "Mismatch in lengths of anomaly_targets and scores"
     auroc = roc_auc_score(anomaly_targets, scores)

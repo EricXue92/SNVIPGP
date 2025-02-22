@@ -6,9 +6,11 @@ import os
 from due.convnext import ConvNextGP
 import torchvision
 from torchvision.transforms import v2
+from sklearn.model_selection import train_test_split
+from torch.utils.data import Subset
+
 from sngp_wrapper.covert_utils import convert_to_sn_my
 import clip
-
 
 IMAGENET_CONVNEXT_MEAN = [0.485, 0.456, 0.406]
 IMAGENET_CONVNEXT_STD = [0.229, 0.224, 0.225]
@@ -37,7 +39,9 @@ datasets_config ={
         "Brain_tumors": DatasetConfig("Brain_tumors", "./data/Brain_tumors"),
         "Alzheimer": DatasetConfig("Alzheimer", "./data/Alzheimer"),
         "CIFAR10": DatasetConfig("CIFAR10", "data/CIFAR10"),
-        "SVHN": DatasetConfig("SVHN", "data/SVHN")
+        "SVHN": DatasetConfig("SVHN", "data/SVHN"),
+        "Colorectal_cancer": DatasetConfig("Colorectal_cancer", "data/Colorectal_cancer"),
+        "Breast Cancer": DatasetConfig("Breast_cancer", "data/Breast_cancer"),
 }
 
 def get_cifar10_dataset():
@@ -51,6 +55,35 @@ def get_svhm_dataset():
         datasets.SVHN("data/SVHN", split="train", transform=TRANSFORMS, download=False),
         datasets.SVHN("data/SVHN", split="test", transform=TRANSFORMS, download=False)
     )
+
+def get_colorectal_feature():
+    dataset = datasets.ImageFolder("data/Colorectal_cancer", transform=TRANSFORMS)
+    train_size = int(0.8 * len(dataset))
+    test_size = len(dataset) - train_size
+    train_idx, test_idx = train_test_split(
+        range(len(dataset)),
+        test_size=test_size,
+        stratify=[y for _, y in dataset.samples],
+        random_state=42
+    )
+    train_dataset = Subset(dataset, train_idx)
+    test_dataset = Subset(dataset, test_idx)
+    return train_dataset, test_dataset
+
+def get_breast_feature():
+    dataset = datasets.ImageFolder("data/Breast_cancer", transform=TRANSFORMS)
+    train_size = int(0.5 * len(dataset))
+    test_size = len(dataset) - train_size
+    train_idx, test_idx = train_test_split(
+        range(len(dataset)),
+        test_size=test_size,
+        stratify=[y for _, y in dataset.samples],
+        random_state=42
+    )
+    train_dataset = Subset(dataset, train_idx)
+    test_dataset = Subset(dataset, test_idx)
+    return train_dataset, test_dataset
+
 
 def get_transform(model_name: str):
     if model_name == "convnext":
@@ -86,6 +119,7 @@ def retrieve_model(model_name):
 def save_features(model, dataloader, output_dir, dataset_name):
     model.eval()
     os.makedirs(output_dir, exist_ok=True)
+    representations, labels = [], []
 
     with torch.no_grad():
         if dataset_name == "Brain_tumors" or dataset_name == "Alzheimer":
@@ -96,7 +130,6 @@ def save_features(model, dataloader, output_dir, dataset_name):
                     features = model.encode_image(inputs)
                 else:
                     features = model(inputs)
-
                 for feature, path in zip(features, paths):
                     # os.path.dirname(...) returns the directory name of the path
                     # os.path.basename(...) returns the last component of the path
@@ -105,17 +138,12 @@ def save_features(model, dataloader, output_dir, dataset_name):
                     feature_path = os.path.join(class_dir, os.path.basename(path).replace('.jpg', '.pt'))
                     torch.save(feature.cpu(), feature_path)
 
-        elif dataset_name == "CIFAR10" or dataset_name == "SVHN":
-            representations, labels = [], []
+        elif dataset_name in {"CIFAR10", "SVHN", "Colorectal_cancer", "Breast_cancer"}:
             for index, (input, label) in enumerate(tqdm(dataloader)):
                 input = input.cuda()
-                if hasattr(model, "encode_image"):
-                    features = model.encode_image(input)
-                else:
-                    features = model(input)
+                features = model(input)
                 representations.append(features.cpu())
                 labels.append(label.cpu())
-
             representations = torch.concat(representations, dim=0)
             labels = torch.concat(labels, dim=0)
             # Save features and labels
@@ -123,7 +151,6 @@ def save_features(model, dataloader, output_dir, dataset_name):
         else:
             raise ValueError("Unknown dataset")
 
-# For CIFAR10 and SVHN with train and test datasets
 def process_dataset(get_dataset_func, model, output_dir, dataset_name):
     train_dataset, test_dataset = get_dataset_func()
     train_loader = DataLoader(train_dataset, batch_size=64, shuffle=False, num_workers=4, pin_memory=True)
@@ -132,27 +159,24 @@ def process_dataset(get_dataset_func, model, output_dir, dataset_name):
     save_features(model, test_loader, os.path.join(output_dir, "test"), dataset_name)
 
 # if __name__ == "__main__":
-#
-#     config = datasets_config["SVHN"]  # Use "CIFAR10", "SVHN", "Brain_tumors", or "Alzheimer"
+#     # Use "Breast Cancer", "Colorectal_cancer", "CIFAR10", "SVHN", "Brain_tumors", or "Alzheimer"
+#     config = datasets_config["Breast Cancer"]
 #     model_name = "convnext"
 #     model = retrieve_model(model_name=model_name)
-#
 #     output_dir = f"./data_feature/{config.dataset_name}"
-#
 #     if config.dataset_name == "Brain_tumors" or config.dataset_name == "Alzheimer":
 #         data = ImageFolderWithPaths(root=config.image_path, transform=get_transform(model_name=model_name))
 #         dataloader = DataLoader(data, batch_size=64, shuffle=False, num_workers=4, pin_memory=True)
 #         save_features(model, dataloader, output_dir, dataset_name=config.dataset_name)
-#
 #     elif config.dataset_name == "CIFAR10":
 #         process_dataset(get_cifar10_dataset, model, output_dir, config.dataset_name)
-#
 #     elif config.dataset_name == "SVHN":
 #         process_dataset(get_svhm_dataset, model, output_dir, config.dataset_name)
-#
+#     elif config.dataset_name == "Colorectal_cancer":
+#         process_dataset(get_colorectal_feature, model, output_dir, config.dataset_name)
+#     elif config.dataset_name == "Breast_cancer":
+#         process_dataset(get_breast_feature, model, output_dir, config.dataset_name)
 #     else:
 #         raise ValueError("Unknown dataset")
-
-
 
 

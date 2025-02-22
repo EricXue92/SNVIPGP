@@ -29,7 +29,7 @@ def main(args):
     # args.temperature = wandb.config.temperature
     # args.beta = wandb.config.beta
     # args.size_loss_form = wandb.config.size_loss_form
-
+    # # #
     # args.learning_rate = wandb.config.learning_rate
     # args.n_inducing_points = wandb.config.n_inducing_points
     # args.kernel = wandb.config.kernel
@@ -37,7 +37,7 @@ def main(args):
     writer = SummaryWriter(log_dir=str(results_dir))
     ds = get_feature_dataset(args.dataset)()
     input_size, num_classes, train_dataset, val_dataset, test_dataset = ds
-    print(f"Train dataset: {len(train_dataset)} | Val dataset: {len(val_dataset)} | Test dataset: {len(test_dataset)}")
+    print(f"train_dataset: {len(train_dataset)} | val_dataset: {len(val_dataset)} | test_dataset: {len(test_dataset)}")
 
     if args.n_inducing_points is None:
         args.n_inducing_points = num_classes
@@ -52,9 +52,9 @@ def main(args):
         parameters.append({"params": likelihood.parameters(), 'lr': args.learning_rate})
 
     #######
-    #optimizer = torch.optim.Adam(parameters, weight_decay=args.weight_decay) #For CIFAR10
-    #optimizer = torch.optim.AdamW(parameters, weight_decay=args.weight_decay)
-    optimizer = torch.optim.AdamW(parameters) # For Brain_tumors
+    optimizer = torch.optim.AdamW(parameters, weight_decay=args.weight_decay) #For CIFAR10
+
+    # optimizer = torch.optim.AdamW(parameters) # For Brain_tumors
 
     training_steps = len(train_dataset) // args.batch_size * args.epochs
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=training_steps)
@@ -203,13 +203,19 @@ def main(args):
     coverage_mean, ineff_list = conformal_evaluate(model, likelihood, dataset=args.dataset, adaptive_flag=args.adaptive_conformal, alpha=args.alpha)
     result["coverage_mean"], result["ineff_list"] = coverage_mean, ineff_list
 
-    #
+    # SNN
+    # wandb.log({"epochs": args.epochs, "test_loss": test_loss, "test_Acc": test_acc,
+    #            "test_ineff":inefficiency,  "beta":args.beta, "avg_coverage":coverage_mean, "ineff_list":ineff_list,
+    #            "temperature":args.temperature, "size_loss_form":args.size_loss_form})
+
     # wandb.log({"epochs": args.epochs, "test_loss": test_loss, "test_Acc": test_acc, "test_auroc": auroc, "test_aupr": aupr,
     #            "test_ineff":inefficiency,  "beta":args.beta, "avg_coverage":coverage_mean, "ineff_list":ineff_list,
     #            "temperature":args.temperature, "size_loss_form":args.size_loss_form}) #
+    # # #
 
     # wandb.log({"epochs": args.epochs, "test_loss": test_loss, "test_Acc": test_acc, "test_auroc": auroc, "test_aupr": aupr,
-    #            "test_ineff":inefficiency, "avg_coverage":coverage_mean, "ineff_list":ineff_list, "kernel":args.kernel, "n_inducing_points":args.n_inducing_points})
+    #            "test_ineff":inefficiency, "avg_coverage":coverage_mean,
+    #            "learning_rate":args.learning_rate, "ineff_list":ineff_list, "kernel":args.kernel, "n_inducing_points":args.n_inducing_points})
 
     writer.close()
     plot_loss_curves(learning_curve)
@@ -217,28 +223,29 @@ def main(args):
 
 def parse_arguments():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--learning_rate", type=float, default=3e-3, help="Learning rate") # 3e-3, 1e-3 # 0.01
-    parser.add_argument("--epochs", type=int, default=30, help="Number of epochs to train for")
-    parser.add_argument("--batch_size", type=int, default=32, help="Batch size to use for training")
-    parser.add_argument("--alpha", type=float, default=0.05, help="Conformal Rate") #####  0.05 or 0.01
-    parser.add_argument("--dataset", default="Brain_tumors", choices=["Brain_tumors", "Alzheimer",'CIFAR10', "SVHN", "CIFAR100"])
-    parser.add_argument("--OOD", default="Alzheimer", choices=["Brain_tumors", "Alzheimer", 'CIFAR10', 'CIFAR100', "SVHN"])
-    parser.add_argument("--n_inducing_points", type=int, default=12, help="Number of inducing points") # 10, 12
+    # [0.005, 0.01]
+    parser.add_argument("--learning_rate", type=float, default=0.05, help="Learning rate") # DUE(0.05) 3e-3, 1e-3 # 0.01
+    parser.add_argument("--epochs", type=int, default=50, help="Number of epochs to train for")
+    parser.add_argument("--batch_size", type=int, default=128, help="Batch size to use for training")
+    parser.add_argument("--alpha", type=float, default=0.01, help="Conformal Rate") #####  0.05 or 0.01
+    parser.add_argument("--dataset", default="Colorectal", choices=["CIFAR100", "Alzheimer",'CIFAR10', "SVHN", "CIFAR100", "Colorectal"])
+    parser.add_argument("--OOD", default="Breast", choices=["Brain_tumors", "Alzheimer", 'CIFAR10', 'CIFAR100', "SVHN", "Colorectal", "Breast"])
+    parser.add_argument("--n_inducing_points", type=int, default=32, help="Number of inducing points") # 10, 12
     parser.add_argument("--beta", type=float, default=0.5, help="Weight for conformal training loss")
     parser.add_argument("--temperature", type=float, default=0.1, help="Temperature for conformal training loss")
-    parser.add_argument("--snn", action="store_false", help="Use standard NN or not")
-    parser.add_argument("--sngp", action="store_true", help="Use SNGP or not")
+    parser.add_argument("--snn", action="store_true", help="Use standard NN or not")
+    parser.add_argument("--sngp", action="store_false", help="Use SNGP or not")
     parser.add_argument("--snipgp", action="store_true", help="Use SNIPGP or not")
-    parser.add_argument("--conformal_training", action="store_false", help="conformal training or not")
+    parser.add_argument("--conformal_training", action="store_true", help="conformal training or not")
     parser.add_argument("--weight_decay", type=float, default=1e-4, help="Weight decay") # 1e-4, 5e-4
     parser.add_argument("--kernel", default="RBF", choices=["RBF", "RQ", "Matern12", "Matern32", "Matern52"], help="Pick a kernel",)
-    parser.add_argument("--no_spectral_conv", action="store_false",  dest="spectral_conv", help="Don't use spectral normalization on the convolutions",)
-    parser.add_argument( "--adaptive_conformal", action="store_false", help="adaptive conformal")
-    parser.add_argument("--no_spectral_bn", action="store_false", dest="spectral_bn", help="Don't use spectral normalization on the batch normalization layers",)
-    parser.add_argument("--coeff", type=float, default=0.95, help="Spectral normalization coefficient") # 3
+    parser.add_argument("--no_spectral_conv", action="store_true",  dest="spectral_conv", help="Don't use spectral normalization on the convolutions",)
+    parser.add_argument( "--adaptive_conformal", action="store_true", help="adaptive conformal")
+    parser.add_argument("--no_spectral_bn", action="store_true", dest="spectral_bn", help="Don't use spectral normalization on the batch normalization layers",)
+    parser.add_argument("--coeff", type=float, default=3, help="Spectral normalization coefficient") # 3
     parser.add_argument("--n_power_iterations", default=1, type=int, help="Number of power iterations")
     parser.add_argument("--output_dir", default="./default", type=str, help="Specify output directory")
-    parser.add_argument("--size_loss_form", default="identity", type=str, help="identity or log")
+    parser.add_argument("--size_loss_form", default="log", type=str, help="identity or log")
     parser.add_argument("--spec_norm_replace_list", nargs='+', default=["Linear", "Conv2D"], type=str, help="List of specifications to replace" )
     parser.add_argument("--spectral_normalization", action="store_true", help="Use spectral normalization or not")
     args = parser.parse_args()
@@ -249,43 +256,46 @@ def parse_arguments():
 if __name__ == "__main__":
     args = parse_arguments()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    seeds = [1]
-    # seeds = [1, 23, 42, 202, 2024]
+    # seeds = [23]
+    seeds = [1, 23, 42, 202, 2024]
     repeat_experiment(args, seeds, main)
-
-    # seeds = [202]
     # #
+    # seeds = [23]
     # wandb.login()
-    # # # Step 1: Define a sweep
+    # ### Step 1: Define a sweep
     # sweep_config = {
     #     'method': 'grid',
     #     'metric': {'name': 'loss', 'goal': 'minimize'},
     #     'parameters': {
-    #         'temperature': {"values":  [0.01, 0.1, 1] },
+    #         'temperature': {"values":  [0.01, 0.1, 1 ] },
     #         "beta": {"values": [0.005, 0.1, 0.05, 0.5] }, # 0.005, 0.1, 0.05,
     #         "size_loss_form": {"values": ["log", "identity"]}, #
     #     }
     # }
-
+    #
     # sweep_config = {
     #     'method': 'grid',
     #     'metric': {'name': 'loss', 'goal': 'minimize'},
     #     'parameters': {
-    #         'n_inducing_points': {"values": [10, 20, 30, 40, 50] },
-    #         "kernel": {"values": [ "RBF", "RQ", "Matern12" ] },    # "Matern32", "Matern52" batch_size = 64
+    #         'n_inducing_points': {"values": [8, 10, 16, 24, 32] },
+    #         "kernel": {"values": ["RBF" ] },
+    #         "learning_rate" :{"values": [0.005, 0.01, 0.02, 0.03, 0.05, 0.1] }
     #     }
     # }
-    #
+    # # # #
+    # # # # # # # #
     # if args.conformal_training:
     #     if args.snipgp:
-    #         project_name = f"sngpct_{args.dataset}"
+    #         project_name = f"snipgp_CT_{args.dataset}_{args.coeff}_{args.n_inducing_points}"
+    #     elif args.sngp:
+    #         project_name = f"sngp_ct_{args.dataset}"
     #     else:
-    #         project_name = f"ipgpct_RBF30_202_{args.dataset}"
+    #         project_name = f"snn_ct_{args.dataset}"
     # else:
     #     if args.snipgp:
-    #         project_name = f"sngp_{args.dataset}"
+    #         project_name = f"snipgp_{args.dataset}_{args.coeff}_{int(args.spectral_normalization)}"
     #     else:
-    #         project_name = f"ipgp_{args.dataset}"
+    #         project_name = f"sngp_{args.dataset}"
     #
     # sweep_id = wandb.sweep(sweep=sweep_config, project=project_name)
-    # wandb.agent(sweep_id, function=partial(repeat_experiment, args, seeds, main), count=24)
+    # wandb.agent(sweep_id, function=partial(repeat_experiment, args, seeds, main), count=30)

@@ -127,7 +127,8 @@ class SimpleMLP(nn.Module):
         self.num_classes = num_classes
         self.fc1 = nn.Linear(768, 256)
         self.fc2 = nn.Linear(256, 128)
-        # self.dropout = nn.Dropout(0.1) # for cifar10
+        self.dropout = nn.Dropout(0.1)  # for cifar10
+        # self.dropout = nn.Dropout(0.3)
         self.prelu = nn.PReLU()
         if self.num_classes is not None:
             self.classifier = nn.Linear(128, num_classes)
@@ -135,12 +136,34 @@ class SimpleMLP(nn.Module):
     def forward(self, x, kwargs={}):
         x = x.view(x.size(0), -1)
         x = self.prelu(self.fc1(x))
-        # x = self.dropout(x)
+        x = self.dropout(x)
         x = self.prelu(self.fc2(x))
-        # x = self.dropout(x)
+        x = self.dropout(x)
         if self.num_classes is not None:
             x = self.classifier(x, **kwargs)
         return x
+    # #
+    #     super(SimpleMLP, self).__init__()
+    #     self.num_classes = num_classes
+    #     self.fc1 = nn.Linear(768, 256 )
+    #     self.bn1 = nn.BatchNorm1d(256)
+    #     self.fc2 = nn.Linear(256, 128)
+    #     self.bn2 = nn.BatchNorm1d(128)
+    #     self.dropout = nn.Dropout(0.1) # for cifar10
+    #     # self.dropout = nn.Dropout(0.3)
+    #     self.prelu = nn.PReLU()
+    #     if self.num_classes is not None:
+    #         self.classifier = nn.Linear(128, num_classes)
+    #
+    # def forward(self, x, kwargs={}):
+    #     x = x.view(x.size(0), -1)
+    #     x = self.prelu(self.bn1(self.fc1(x)))
+    #     x = self.dropout(x)
+    #     x = self.prelu(self.bn2(self.fc2(x)))
+    #     x = self.dropout(x)
+    #     if self.num_classes is not None:
+    #         x = self.classifier(x, **kwargs)
+    #     return x
 
 
 class SimpleConvNet(nn.Module):
