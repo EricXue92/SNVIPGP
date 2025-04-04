@@ -2,16 +2,13 @@ import os
 import argparse
 import torch
 import torch.nn.functional as F
-from torch.utils.tensorboard import SummaryWriter
 from lib.datasets import get_feature_dataset
 from lib.evaluate_ood import get_ood_metrics
 from lib.utils import get_results_directory, accuracy_fn, repeat_experiment, plot_loss_curves
 from lib.evaluate_cp import conformal_evaluate, ConformalTrainingLoss, tps
-# from earlystopping import EarlyStopping
 from torch.utils.data import DataLoader
 import json
 import operator
-
 from builder_model import build_model
 
 import wandb
@@ -34,14 +31,15 @@ def main(args):
     # args.n_inducing_points = wandb.config.n_inducing_points
     # args.kernel = wandb.config.kernel
 
-    writer = SummaryWriter(log_dir=str(results_dir))
     ds = get_feature_dataset(args.dataset)()
     input_size, num_classes, train_dataset, val_dataset, test_dataset = ds
     print(f"train_dataset: {len(train_dataset)} | val_dataset: {len(val_dataset)} | test_dataset: {len(test_dataset)}")
 
     if args.n_inducing_points is None:
         args.n_inducing_points = num_classes
+
     args_dict = vars(args)
+    # json.dumps(): converts a Python object into a JSON string.
     args_json = json.dumps(args_dict, indent=4)
     print(f"Training with:\n{args_json}")
 
@@ -51,9 +49,7 @@ def main(args):
     if args.snipgp:
         parameters.append({"params": likelihood.parameters(), 'lr': args.learning_rate})
 
-    #######
     optimizer = torch.optim.AdamW(parameters, weight_decay=args.weight_decay) #For CIFAR10
-
     # optimizer = torch.optim.AdamW(parameters) # For Brain_tumors
 
     training_steps = len(train_dataset) // args.batch_size * args.epochs
@@ -77,8 +73,7 @@ def main(args):
         model.train()
         if args.snipgp and likelihood is not None:
             likelihood.train()
-
-        for batch_idx, (X, y) in enumerate(train_loader):
+        for idx, (X, y) in enumerate(train_loader):
             X, y = X.to(device), y.to(device)
             y_pred = model(X)
             if args.conformal_training and args.snipgp:
@@ -138,6 +133,8 @@ def main(args):
         target = torch.cat(target_list, dim=0)
         return test_loss, test_acc, prob, target
     learning_curve = {"train_loss": [], "train_acc": [], "val_loss": [], "val_acc": [] }
+
+
     for epoch in range(args.epochs):
         if args.sngp:
             model.classifier.reset_covariance_matrix() # if args.sngp else None
@@ -211,30 +208,29 @@ def main(args):
     # wandb.log({"epochs": args.epochs, "test_loss": test_loss, "test_Acc": test_acc, "test_auroc": auroc, "test_aupr": aupr,
     #            "test_ineff":inefficiency,  "beta":args.beta, "avg_coverage":coverage_mean, "ineff_list":ineff_list,
     #            "temperature":args.temperature, "size_loss_form":args.size_loss_form}) #
-    # # #
+    # # # #
 
     # wandb.log({"epochs": args.epochs, "test_loss": test_loss, "test_Acc": test_acc, "test_auroc": auroc, "test_aupr": aupr,
     #            "test_ineff":inefficiency, "avg_coverage":coverage_mean,
     #            "learning_rate":args.learning_rate, "ineff_list":ineff_list, "kernel":args.kernel, "n_inducing_points":args.n_inducing_points})
 
-    writer.close()
     plot_loss_curves(learning_curve)
     return result
 
 def parse_arguments():
     parser = argparse.ArgumentParser()
     # [0.005, 0.01]
-    parser.add_argument("--learning_rate", type=float, default=0.05, help="Learning rate") # DUE(0.05) 3e-3, 1e-3 # 0.01
+    parser.add_argument("--learning_rate", type=float, default=1e-4, help="Learning rate") # DUE(0.05) 3e-3, 1e-3 # 0.01
     parser.add_argument("--epochs", type=int, default=50, help="Number of epochs to train for")
     parser.add_argument("--batch_size", type=int, default=128, help="Batch size to use for training")
     parser.add_argument("--alpha", type=float, default=0.01, help="Conformal Rate") #####  0.05 or 0.01
-    parser.add_argument("--dataset", default="Colorectal", choices=["CIFAR100", "Alzheimer",'CIFAR10', "SVHN", "CIFAR100", "Colorectal"])
-    parser.add_argument("--OOD", default="Breast", choices=["Brain_tumors", "Alzheimer", 'CIFAR10', 'CIFAR100', "SVHN", "Colorectal", "Breast"])
-    parser.add_argument("--n_inducing_points", type=int, default=32, help="Number of inducing points") # 10, 12
+    parser.add_argument("--dataset", default="CIFAR10", choices=["CIFAR100", "Alzheimer",'CIFAR10', "SVHN", "CIFAR100", "Colorectal"])
+    parser.add_argument("--OOD", default="SVHN", choices=["Brain_tumors", "Alzheimer", 'CIFAR10', 'CIFAR100', "SVHN", "Colorectal", "Breast"])
+    parser.add_argument("--n_inducing_points", type=int, default=10, help="Number of inducing points") # 40
     parser.add_argument("--beta", type=float, default=0.5, help="Weight for conformal training loss")
-    parser.add_argument("--temperature", type=float, default=0.1, help="Temperature for conformal training loss")
-    parser.add_argument("--snn", action="store_true", help="Use standard NN or not")
-    parser.add_argument("--sngp", action="store_false", help="Use SNGP or not")
+    parser.add_argument("--temperature", type=float, default=0.01, help="Temperature for conformal training loss")
+    parser.add_argument("--snn", action="store_false", help="Use standard NN or not")
+    parser.add_argument("--sngp", action="store_true", help="Use SNGP or not")
     parser.add_argument("--snipgp", action="store_true", help="Use SNIPGP or not")
     parser.add_argument("--conformal_training", action="store_true", help="conformal training or not")
     parser.add_argument("--weight_decay", type=float, default=1e-4, help="Weight decay") # 1e-4, 5e-4
@@ -256,8 +252,8 @@ def parse_arguments():
 if __name__ == "__main__":
     args = parse_arguments()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    seeds = [23]
-    #seeds = [1, 23, 42, 202, 2024]
+    # seeds = [23]
+    seeds = [1, 23, 42, 202, 2024]
     repeat_experiment(args, seeds, main)
     # #
     # seeds = [23]
@@ -298,4 +294,4 @@ if __name__ == "__main__":
     #         project_name = f"sngp_{args.dataset}"
     #
     # sweep_id = wandb.sweep(sweep=sweep_config, project=project_name)
-    # wandb.agent(sweep_id, function=partial(repeat_experiment, args, seeds, main), count=30)
+    # wandb.agent(sweep_id, function=partial(repeat_experiment, args, seeds, main), count=24)

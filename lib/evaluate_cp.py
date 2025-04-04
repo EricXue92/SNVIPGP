@@ -4,10 +4,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import gpytorch
-from lib.datasets import get_tumors_feature
 from torch.utils.data import Dataset, DataLoader
 from lib.datasets import get_feature_dataset
-
 NUM_WORKERS = os.cpu_count()
 
 class ConformalTrainingLoss(nn.Module):
@@ -21,7 +19,7 @@ class ConformalTrainingLoss(nn.Module):
     def forward(self, probabilities, y):
         conformity_score = probabilities[torch.arange(len(probabilities)), y]
         tau = torch.quantile(conformity_score, self.alpha)
-        in_set_prob = F.sigmoid((probabilities - tau) / self.temperature)
+        in_set_prob = F.sigmoid( (probabilities - tau) / self.temperature)
         print(f"in set prob: {in_set_prob}")
         if self.args.size_loss_form == 'log':
             size_loss = torch.log( torch.clamp(in_set_prob.sum(dim=1), min=1).mean(dim=0) )
@@ -39,10 +37,10 @@ class ConformalTrainingLoss(nn.Module):
         else:
             print(f"size loss : {size_loss.item():.4f}")
             return size_loss
-    def compute(self):
-        return self.eff
+
 
 def tps(cal_smx, val_smx, cal_labels, val_labels, n, alpha):
+
     cal_scores = 1 - cal_smx[torch.arange(n), cal_labels]
     q_level = np.ceil((n + 1) * (1 - alpha)) / n
     q_hat = torch.quantile(cal_scores, q_level, interpolation='midpoint')  # 'higher'

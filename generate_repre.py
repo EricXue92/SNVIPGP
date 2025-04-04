@@ -8,9 +8,8 @@ import torchvision
 from torchvision.transforms import v2
 from sklearn.model_selection import train_test_split
 from torch.utils.data import Subset
-
-from sngp_wrapper.covert_utils import convert_to_sn_my
 import clip
+
 
 IMAGENET_CONVNEXT_MEAN = [0.485, 0.456, 0.406]
 IMAGENET_CONVNEXT_STD = [0.229, 0.224, 0.225]
@@ -21,6 +20,7 @@ IMAGENET_CONVNEXT_STD = [0.229, 0.224, 0.225]
 #     transforms.ToTensor(),  # Convert to tensor
 #     transforms.Normalize(mean=IMAGENET_CONVNEXT_MEAN, std=IMAGENET_CONVNEXT_STD)  # Normalize
 # ])
+
 TRANSFORMS = transforms.Compose([
     transforms.Resize(232, interpolation=transforms.InterpolationMode.BILINEAR),  # Resize to 232x232
     transforms.CenterCrop(224),  # Central crop to 224x224
@@ -28,7 +28,6 @@ TRANSFORMS = transforms.Compose([
     transforms.Normalize(mean=IMAGENET_CONVNEXT_MEAN, std=IMAGENET_CONVNEXT_STD)  # Normalize with given mean and std
 ])
 
-# Dataset classes
 class DatasetConfig:
     def __init__(self, dataset_name, image_path):
         self.dataset_name = dataset_name
@@ -158,25 +157,28 @@ def process_dataset(get_dataset_func, model, output_dir, dataset_name):
     save_features(model, train_loader, os.path.join(output_dir, "train"), dataset_name)
     save_features(model, test_loader, os.path.join(output_dir, "test"), dataset_name)
 
-# if __name__ == "__main__":
-#     # Use "Breast Cancer", "Colorectal_cancer", "CIFAR10", "SVHN", "Brain_tumors", or "Alzheimer"
-#     config = datasets_config["Breast Cancer"]
-#     model_name = "convnext"
-#     model = retrieve_model(model_name=model_name)
-#     output_dir = f"./data_feature/{config.dataset_name}"
-#     if config.dataset_name == "Brain_tumors" or config.dataset_name == "Alzheimer":
-#         data = ImageFolderWithPaths(root=config.image_path, transform=get_transform(model_name=model_name))
-#         dataloader = DataLoader(data, batch_size=64, shuffle=False, num_workers=4, pin_memory=True)
-#         save_features(model, dataloader, output_dir, dataset_name=config.dataset_name)
-#     elif config.dataset_name == "CIFAR10":
-#         process_dataset(get_cifar10_dataset, model, output_dir, config.dataset_name)
-#     elif config.dataset_name == "SVHN":
-#         process_dataset(get_svhm_dataset, model, output_dir, config.dataset_name)
-#     elif config.dataset_name == "Colorectal_cancer":
-#         process_dataset(get_colorectal_feature, model, output_dir, config.dataset_name)
-#     elif config.dataset_name == "Breast_cancer":
-#         process_dataset(get_breast_feature, model, output_dir, config.dataset_name)
-#     else:
-#         raise ValueError("Unknown dataset")
+if __name__ == "__main__":
+    # Use "Breast Cancer", "Colorectal_cancer", "CIFAR10", "SVHN", "Brain_tumors", or "Alzheimer"
+    config = datasets_config["Breast Cancer"]
+    model_name = "convnext"
+    model = retrieve_model(model_name=model_name)
+    output_dir = f"./data_feature/{config.dataset_name}"
+    if config.dataset_name == "Brain_tumors" or config.dataset_name == "Alzheimer":
+        data = ImageFolderWithPaths(root=config.image_path, transform=get_transform(model_name=model_name))
+        dataloader = DataLoader(data, batch_size=64, shuffle=False, num_workers=4, pin_memory=True)
+        save_features(model, dataloader, output_dir, dataset_name=config.dataset_name)
+
+    elif config.dataset_name == "CIFAR10":
+        process_dataset(get_cifar10_dataset, model, output_dir, config.dataset_name)
+
+    elif config.dataset_name == "SVHN":
+        process_dataset(get_svhm_dataset, model, output_dir, config.dataset_name)
+
+    elif config.dataset_name == "Colorectal_cancer":
+        process_dataset(get_colorectal_feature, model, output_dir, config.dataset_name)
+    elif config.dataset_name == "Breast_cancer":
+        process_dataset(get_breast_feature, model, output_dir, config.dataset_name)
+    else:
+        raise ValueError("Unknown dataset")
 
 

@@ -8,19 +8,17 @@ from torch.utils.data import ConcatDataset, DataLoader, Dataset
 NUM_WORKERS = os.cpu_count()
 
 def prepare_ood_datasets(true_dataset, ood_dataset):
-    # ood_dataset.transform = true_dataset.transform
+    if hasattr(ood_dataset, 'transform') and hasattr(true_dataset, 'transform'):
+        ood_dataset.transform = true_dataset.transform
     datasets = [true_dataset, ood_dataset]
     print(f"True dataset Size: {len(true_dataset)} | OOD dataset Size: {len(ood_dataset)}")
-
     anomaly_targets = torch.cat(
         (torch.zeros(len(true_dataset)), torch.ones(len(ood_dataset)))
     )
     concat_datasets = ConcatDataset(datasets)
-
     dataloader = DataLoader(
         concat_datasets, batch_size=64, shuffle=False, num_workers=NUM_WORKERS, pin_memory=True
     )
-
     return dataloader, anomaly_targets
 
 def loop_over_dataloader(model, likelihood, dataloader):
@@ -47,7 +45,7 @@ def loop_over_dataloader(model, likelihood, dataloader):
                 # uncertainty = num_classes / (belief_mass + num_classes)
                 # uncertainty = 1 - torch.max(output, dim=-1)[0]
             else:
-                with gpytorch.settings.num_likelihood_samples(32):
+                with gpytorch.settings.num_likelihood_samples(128):
                     y_pred = model(data).to_data_independent_dist()
                     predictive_dist = likelihood(y_pred)
                     probs = predictive_dist.probs
@@ -80,11 +78,11 @@ def loop_over_dataloader(model, likelihood, dataloader):
 def get_ood_metrics(in_dataset: object, out_dataset: object, model: object, likelihood: object = None) -> object:
     _, _, _, val_in_dataset, in_dataset = get_feature_dataset(in_dataset)()
     _, _, _, val_out_dataset, out_dataset = get_feature_dataset(out_dataset)()
+
     in_dataset = ConcatDataset([val_in_dataset, in_dataset])
     out_dataset = ConcatDataset([val_out_dataset, out_dataset])
 
     dataloader, anomaly_targets = prepare_ood_datasets(in_dataset, out_dataset)
-
     scores, accuracies = loop_over_dataloader(model, likelihood, dataloader)
 
     accuracy = np.mean(accuracies[:len(in_dataset)])
