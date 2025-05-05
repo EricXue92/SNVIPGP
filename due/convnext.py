@@ -98,7 +98,6 @@ class SimpleResnet(nn.Module):
         self.res1 = ResidualBlock(512, 256)
         self.res2 = ResidualBlock(256, 128)
         #self.res3 = ResidualBlock(256, 128)
-
         # Classifier
         if self.num_classes is not None:
             self.classifier = nn.Linear(128, num_classes)
@@ -121,18 +120,18 @@ class SimpleResnet(nn.Module):
             x = self.classifier(x, **kwargs)
         return x
 
+
 class SimpleMLP(nn.Module):
     def __init__(self, num_classes: int):
     #     super(SimpleMLP, self).__init__()
     #     self.num_classes = num_classes
     #     self.fc1 = nn.Linear(768, 256)
     #     self.fc2 = nn.Linear(256, 128)
-    #     self.dropout = nn.Dropout(0.1)  # for cifar10
-    #     # self.dropout = nn.Dropout(0.3)
+    #     # self.dropout = nn.Dropout(0.1)  # for cifar10
+    #     self.dropout = nn.Dropout(0.1)
     #     self.prelu = nn.PReLU()
     #     if self.num_classes is not None:
     #         self.classifier = nn.Linear(128, num_classes)
-    #
     # def forward(self, x, kwargs={}):
     #     x = x.view(x.size(0), -1)
     #     x = self.prelu(self.fc1(x))
@@ -142,18 +141,18 @@ class SimpleMLP(nn.Module):
     #     if self.num_classes is not None:
     #         x = self.classifier(x, **kwargs)
     #     return x
-    # #
+
         super(SimpleMLP, self).__init__()
         self.num_classes = num_classes
-        self.fc1 = nn.Linear(768, 256 )
-        self.bn1 = nn.BatchNorm1d(256)
-        self.fc2 = nn.Linear(256, 128)
-        self.bn2 = nn.BatchNorm1d(128)
-        self.dropout = nn.Dropout(0.1) # for cifar10
-        # self.dropout = nn.Dropout(0.3)
+        self.fc1 = nn.Linear(768, 128)
+        self.bn1 = nn.BatchNorm1d(128)
+        self.fc2 = nn.Linear(128, 64)
+        self.bn2 = nn.BatchNorm1d(64)
+        # self.dropout = nn.Dropout(0.1)
+        self.dropout = nn.Dropout(0.3) # for cifar10
         self.prelu = nn.PReLU()
         if self.num_classes is not None:
-            self.classifier = nn.Linear(128, num_classes)
+            self.classifier = nn.Linear(64, num_classes)
 
     def forward(self, x, kwargs={}):
         x = x.view(x.size(0), -1)
@@ -165,26 +164,54 @@ class SimpleMLP(nn.Module):
             x = self.classifier(x, **kwargs)
         return x
 
+        # For Breast sngp
+        # super(SimpleMLP, self).__init__()
+        # self.num_classes = num_classes
+    #     self.fc1 = nn.Linear(768, 256)
+    #     self.fc2 = nn.Linear(256, 128)
+    #     self.bn1 = nn.BatchNorm1d(256)
+    #     self.bn2 = nn.BatchNorm1d(128)
+    #     self.dropout = nn.Dropout(0.1)
+    #     self.relu = nn.ReLU()
+    #     self.classifier = nn.Linear(128, num_classes)
+    #
+    # def forward(self, x, kwargs={}):
+    #     x = x.view(x.size(0), -1)
+    #     x = self.fc1(x)
+    #     x = self.bn1(x)
+    #     x = self.relu(x)
+    #     x = self.dropout(x)
+    #     x = self.fc2(x)
+    #     x = self.bn2(x)
+    #     x = self.relu(x)
+    #     x = self.dropout(x)
+    #     if self.num_classes is not None:
+    #         x = self.classifier(x, **kwargs)
+    #     return x
 
-class SimpleConvNet(nn.Module):
-    def __init__(self, num_classes: int):
-        super(SimpleConvNet, self).__init__()
-        self.conv1 = nn.Conv2d(in_channels=1, out_channels=16, kernel_size=3, stride=1, padding=1)
-        self.conv2 = nn.Conv2d(in_channels=16, out_channels=64, kernel_size=3, stride=1, padding=1)
-        self.fc1 = nn.Linear(64 * 32 * 24, 128)
-        self.prelu = nn.PReLU()
-        self.num_classes = num_classes
-        if self.num_classes is not None:
-            self.classifier = nn.Linear(128, num_classes)
-
-    def forward(self, x, kwargs={}):
-        x = x.view(x.size(0), 1, 32, 24)  # Reshape to (batch_size, 1, 32, 24)
-        x = F.relu(self.conv1(x))
-        x = F.relu(self.conv2(x))
-        x = x.view(x.size(0), -1)  # Flatten the tensor
-        x = self.prelu(self.fc1(x))
-        if self.num_classes is not None:
-            x = self.classifier(x, **kwargs)
-        return x
 
 
+
+
+# class SimpleConvNet(nn.Module):
+#     def __init__(self, num_classes: int):
+#         super(SimpleConvNet, self).__init__()
+#         self.conv1 = nn.Conv2d(in_channels=1, out_channels=16, kernel_size=3, stride=1, padding=1)
+#         self.conv2 = nn.Conv2d(in_channels=16, out_channels=64, kernel_size=3, stride=1, padding=1)
+#         self.fc1 = nn.Linear(64 * 32 * 24, 128)
+#         self.prelu = nn.PReLU()
+#         self.num_classes = num_classes
+#         if self.num_classes is not None:
+#             self.classifier = nn.Linear(128, num_classes)
+#
+#     def forward(self, x, kwargs={}):
+#         x = x.view(x.size(0), 1, 32, 24)  # Reshape to (batch_size, 1, 32, 24)
+#         x = F.relu(self.conv1(x))
+#         x = F.relu(self.conv2(x))
+#         x = x.view(x.size(0), -1)  # Flatten the tensor
+#         x = self.prelu(self.fc1(x))
+#         if self.num_classes is not None:
+#             x = self.classifier(x, **kwargs)
+#         return x
+#
+#

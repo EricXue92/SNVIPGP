@@ -33,12 +33,11 @@ class FeatureDataset(Dataset):
         feature_path = self.feature_paths[idx]
         feature = torch.load(feature_path).float()
         label = os.path.basename(os.path.dirname(feature_path))
-        return feature, self.label_map[label]
+        return feature, torch.tensor(self.label_map[label], dtype=torch.long)
 
 def get_tumors_feature(image_path: str = "./data_feature/Brain_tumors"):
     full_dataset = FeatureDataset(image_path)
-    input_size = 768
-    num_classes = 4
+    input_size, num_classes = 768, 4
     targets = [full_dataset[i][1] for i in range(len(full_dataset))]
     train_indices, temp_indices, _, temp_labels = train_test_split(
         range(len(full_dataset)), targets, test_size=0.2, stratify=targets, random_state=23
@@ -115,12 +114,12 @@ def get_feature_dataset(dataset):
     return all_feature_datasets[dataset]
 
 # if __name__ == "__main__":
-    # temp = get_feature_dataset("CIFAR10")()
-    # input_size, num_classes, train_dataset, val_dataset, test_dataset = temp
-    # print(train_dataset[8])
-    #
-    # feauture_f = FeatureDataset('../data_feature/Brain_tumors')
-    # print("len(feauture_f):", len(feauture_f))
-    # print("feauture_f[0]:", feauture_f[0][0].shape, feauture_f[0][1])
+#     temp = get_feature_dataset("CIFAR10")()
+#     input_size, num_classes, train_dataset, val_dataset, test_dataset = temp
+#     print(train_dataset[8])
+#
+#     feauture_f = FeatureDataset('../data_feature/Brain_tumors')
+#     print("len(feauture_f):", len(feauture_f))
+#     print("feauture_f[0]:", feauture_f[0][0].shape, feauture_f[0][1])
 
 

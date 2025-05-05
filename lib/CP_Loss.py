@@ -16,10 +16,24 @@ class ConformalTrainingLoss(nn.Module):
         self.temperature = temperature
         self.args = args
 
-    def forward(self, probabilities, y):
-        conformity_score = probabilities[torch.arange(len(probabilities)), y]
+    def quantile(self, scores, alpha):
+        n = len(scores)
+        q = torch.quantile(scores, alpha* (1 + 1/n) )
+        return q
+
+    def conformity_score(self, logits, y):
+        probs = F.softmax(logits, dim=1)
+        return probs[range(len(y)), y]
+
+    def predict_confidence_sets(self,logits, tau):
+        probs = F.softmax(logits, dim=1)
+        prediction_sets = probs >= (1 - tau)
+        return prediction_sets
+
+    def forward(self, logits, y):
+        conformity_score = logits[torch.arange(len(logits)), y]
         tau = torch.quantile(conformity_score, self.alpha)
-        in_set_prob = F.sigmoid( (probabilities - tau) / self.temperature)
+        in_set_prob = F.sigmoid( (logits - tau) / self.temperature)
         print(f"in set prob: {in_set_prob}")
         if self.args.size_loss_form == 'log':
             size_loss = torch.log( torch.clamp(in_set_prob.sum(dim=1), min=1).mean(dim=0) )
@@ -30,7 +44,7 @@ class ConformalTrainingLoss(nn.Module):
         size_loss = self.beta * size_loss
 
         if self.args.sngp or self.args.snn:
-            fn_loss = F.cross_entropy(probabilities, y)
+            fn_loss = F.cross_entropy(logits, y)
             total_loss = fn_loss + size_loss
             print(f"Total loss : {(size_loss.item() + fn_loss.item()):.4f} | Size loss: {size_loss.item():.4f} | Ce loss : {fn_loss.item():.4f}")
             return total_loss

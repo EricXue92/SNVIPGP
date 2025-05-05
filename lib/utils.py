@@ -16,15 +16,16 @@ import seaborn as sns
 sns.set(style="white", font_scale=2)
 from matplotlib.ticker import MaxNLocator
 
+
 def repeat_experiment(args, seeds, main_fn):
     # run = wandb.init()
     result_dict = defaultdict(list)
     if args.sngp:
-        tag_name = f"sngp_epoch_{args.epochs}_{args.dataset}_{args.learning_rate}_{args.batch_size}_sn{str(int(args.spectral_normalization))}_{str(args.coeff)}.csv"
+        tag_name = f"sngp_epoch_{args.epochs}_{args.dataset}_OOD_{args.OOD}_{args.learning_rate}_{args.batch_size}_sn{str(int(args.spectral_normalization))}_{str(args.coeff)}.csv"
     elif args.snipgp:
-        tag_name = f"snipgp_epoch_{args.epochs}_{args.dataset}_{args.learning_rate}_{args.batch_size}_{args.kernel}_{args.n_inducing_points}_sn{str(int(args.spectral_normalization))}_{str(args.coeff)}.csv"
+        tag_name = f"snipgp_epoch_{args.epochs}_{args.dataset}_OOD_{args.OOD}_{args.learning_rate}_{args.batch_size}_{args.kernel}_{args.n_inducing_points}_sn{str(int(args.spectral_normalization))}_{str(args.coeff)}.csv"
     elif args.snn:
-        tag_name = f"snn_epoch{args.epochs}_{args.dataset}_{args.learning_rate}_{args.batch_size}_sn{str(int(args.spectral_normalization))}_{str(args.coeff)}.csv"
+        tag_name = f"snn_epoch{args.epochs}_{args.dataset}_OOD_{args.OOD}_{args.learning_rate}_{args.batch_size}_sn{str(int(args.spectral_normalization))}_{str(args.coeff)}.csv"
     else:
         raise ValueError("Invalid model type")
 
@@ -41,7 +42,6 @@ def repeat_experiment(args, seeds, main_fn):
 
     results_file_path = Path(f"{parent_name}/{tag_name}")
     results_file_path.parent.mkdir(exist_ok=True)
-
     summary_metrics = pd.DataFrame(result_dict)
     statistic_metrics = summary_metrics.agg(["mean", "std"]).transpose()
     statistic_metrics["mean-std"] = (statistic_metrics["mean"].round(4).astype(str) + "±" +
@@ -117,3 +117,36 @@ def get_results_directory(name, stamp=True):
     results_dir = results_dir / timestamp if stamp else results_dir
     results_dir.mkdir(parents=True)
     return results_dir
+
+# def plot_conformal_robustness_vs_percentile(scores, accuracies, anomaly_targets,
+#                                             alpha=0.01, percentiles=np.arange(80, 100)):
+#     scores = np.array(scores)
+#     accuracies = np.array(accuracies)
+#     anomaly_targets = np.array(anomaly_targets)
+#     is_in = (anomaly_targets == 0)
+#     is_ood = (anomaly_targets == 1)
+#     pi = is_ood.mean()
+#     deltas = []
+#     for p in percentiles:
+#         threshold = np.percentile(scores, p)
+#         is_accepted = scores < threshold
+#         delta = 1 - is_accepted[is_in].mean()
+#         gamma = is_accepted[is_ood].mean()
+#         accepted_ood = is_accepted & is_ood
+#         beta = accuracies[accepted_ood].mean() if accepted_ood.any() else 0.0
+#         Delta = (1 - alpha) * ((1 - pi) * delta + pi) - pi * gamma * beta
+#         deltas.append(Delta)
+#     plt.figure(figsize=(7,5))
+#     plt.plot(percentiles, deltas, marker='o')
+#     plt.xlabel("Uncertainty Percentile Threshold")
+#     plt.ylabel("Coverage Gap (Delta)")
+#     plt.title("Conformal Robustness vs Uncertainty Threshold")
+#     plt.grid(True)
+#     plt.tight_layout()
+#     plt.savefig('conformal_robustness.pdf')
+#     plt.show()
+
+
+
+
+
