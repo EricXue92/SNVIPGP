@@ -10,3 +10,5 @@ data
 ood_leakage.pkl
 results_conformal/
 results_normal/
+results_conformal/
+results_normal/
