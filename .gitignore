@@ -7,3 +7,6 @@ data
 *png
 *.pt
 .csv
+ood_leakage.pkl
+results_conformal/
+results_normal/
