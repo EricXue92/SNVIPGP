@@ -268,26 +268,7 @@ def parse_arguments():
 if __name__ == "__main__":
     args = parse_arguments()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    seeds = [1]
-    #seeds = [1, 23, 42, 202, 2024] # original
-    # seeds = [1, 23, 42, 5, 2024] # for breast sngp
-    # seeds = [15] # 7, 33, 1992
-    # seeds = [1, 23, 42, 43, 2024]
-    # seeds = [3, 15, 17, 20]
-    # seeds = [1, 23, 42, 15, 3]
-    # seeds = [23]
-    #seeds = [1, 23, 42, 202, 3]  # for breast vipgp
-    # seeds = [1, 23, 17, 202, 3]  # for breast vipgp first run
-    # seeds = [1, 23, 13, 202, 3]  # for breast vipgp first run
-    #seeds = [1, 23, 42, 15, 2024] # first run
-
-    # seeds = [1, 23, 42, 202, 3] # second run
-
-    #seeds = [1, 23, 42, 4, 3] # Final
-
-    # seeds = [1, 23, 42, 15, 2024]
-
-    #seeds = [1, 23, 42, 3, 2024] # Breast sn
+    #seeds = [1, 23, 42, 202, 2024]
     repeat_experiment(args, seeds, main)
     # # seeds = [23]
     # wandb.login()
