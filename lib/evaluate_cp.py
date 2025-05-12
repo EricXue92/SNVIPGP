@@ -15,13 +15,12 @@ class ConformalTrainingLoss(nn.Module):
         self.beta = beta
         self.temperature = temperature
         self.args = args
-
     def forward(self, probabilities, y):
         conformity_score = probabilities[torch.arange(len(probabilities)), y]
         tau = torch.quantile(conformity_score, self.alpha)
-
         in_set_prob = F.sigmoid( (probabilities - tau) / self.temperature)
         print(f"in set prob: {in_set_prob}")
+
         if self.args.size_loss_form == 'log':
             size_loss = torch.log( torch.clamp(in_set_prob.sum(dim=1), min=1).mean(dim=0) )
         elif self.args.size_loss_form == 'identity':
