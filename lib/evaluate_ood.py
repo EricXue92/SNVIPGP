@@ -2,12 +2,10 @@ import os
 import numpy as np
 import torch
 import gpytorch
-import matplotlib.pyplot as plt
 from sklearn.metrics import roc_auc_score, precision_recall_curve, auc
 from .datasets import get_feature_dataset
 from torch.utils.data import ConcatDataset, DataLoader, Dataset
 import pickle
-from lib.utils import plot_conformal_robustness_vs_percentile
 
 NUM_WORKERS = os.cpu_count()
 
@@ -50,13 +48,23 @@ def loop_over_dataloader(model, likelihood, dataloader, return_preds=False):
                 # uncertainty = num_classes / (belief_mass + num_classes)
                 # uncertainty = 1 - torch.max(output, dim=-1)[0]
             else:
+                # number of Monte carlo samples drawn from the variational posterior q(f)
                 with gpytorch.settings.num_likelihood_samples(128): # 256
-                    y_pred = model(data).to_data_independent_dist()
-                    predictive_dist = likelihood(y_pred)
-                    probs = predictive_dist.probs
-                    output = probs.mean(0)
+
+                    y_pred = model(data).to_data_independent_dist() # [128, N, C] 128 MC samples from q(f) for N data points and C classes
+
+                    # softmax likelihood applied to each MC sample → predictive distribution over classes for each MC sample
+                    predictive_dist = likelihood(y_pred)  # [128, N, C]
+
+                    # Step 3: .probs just ACCESSES the already-computed probabilities
+                    probs = predictive_dist.probs # [128, N, C]
+
+                    # average over samples → marginal predictive distribution
+                    output = probs.mean(0) # [N, C] ≈ E_q[p(y|f)]
+
+                # entropy of that averaged distribution
                 uncertainty = -(output * output.log()).sum(1)
-                #     uncertainty = probs.var(0)
+                # uncertainty = probs.var(0)
                 # #uncertainty, max_indices = torch.max(uncertainty, dim=1)
                 # uncertainty = torch.mean(uncertainty, dim=1)
                 # uncertainty = -(output * output.log()).sum(1)
@@ -123,6 +131,7 @@ def get_ood_metrics(in_dataset: object, out_dataset: object, model: object, like
         with open(save_path, 'wb') as f:
             pickle.dump(outputs, f)
         print(f"Saved predictive outputs to {save_path}")
+
     # Conformal robustness evaluation
     alpha, uncertainty_percentile = 0.01, 90
     scores = np.array(scores)
@@ -151,7 +160,7 @@ def get_ood_metrics(in_dataset: object, out_dataset: object, model: object, like
         print(f"{k}: {v:.4f}")
     print("---------------------------------------\n")
     # Plotting inside the function
-    plot_conformal_robustness_vs_percentile(scores, accuracies, anomaly_targets)
+    # plot_conformal_robustness_vs_percentile(scores, accuracies, anomaly_targets)
     return accuracy, auroc, aupr, results
 
 

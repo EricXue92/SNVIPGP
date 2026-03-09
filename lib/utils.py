@@ -52,6 +52,7 @@ def repeat_experiment(args, seeds, main_fn):
         existing_data = pd.read_csv(results_file_path)
         summary_metrics = pd.concat([existing_data, summary_metrics], ignore_index=True)
     summary_metrics.to_csv(results_file_path, index=False)
+    return run_time
     # wandb.finish()
 
 def set_seed(seed):
