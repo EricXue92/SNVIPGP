@@ -1,3 +1,12 @@
+# A Unified Framework for Reliable Deep Learning: Conformal Prediction Meets Out-of-Distribution Detection
+
+The official implementation of the paper ["A Unified Framework for Reliable Deep Learning: Conformal Prediction Meets Out-of-Distribution Detection"].
+
+&nbsp;
+![The snvipgp](SNVIPGP Framework.png)
+
+
+
 To install requirements:
 ```setup
 pip install -r requirements.txt
